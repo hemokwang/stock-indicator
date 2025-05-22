@@ -1,60 +1,65 @@
 import argparse
-# Adjusting imports for potential direct execution vs. package execution.
-# If running as `python src/main.py`, Python might not treat `src` as a package.
-# If running as `python -m src.main`, it should work.
-# For robustness in stubs, sometimes explicit sys.path manipulation is added,
-# or using try-except for different import styles.
-# For now, we'll use relative imports assuming it might be run as a module.
-
+# Adjust imports based on how you run it (e.g., directly or as a module)
 try:
     from .data_provider import fetch_stock_data
     from .analysis_engine import AnalysisEngine
-    from .models import Stock # Though not directly used in main, good to ensure it's accessible
-    from .indicators import moving_average, rsi # Same as above
-except ImportError:
-    # Fallback for direct script execution if src is not in PYTHONPATH
-    # or if not run with `python -m src.main`
-    print("Attempting fallback imports for direct script execution...")
+except ImportError: # Fallback for running script directly for testing
     from data_provider import fetch_stock_data
     from analysis_engine import AnalysisEngine
-    # We don't directly use models or indicators in main() but they are part of the project.
-    # If AnalysisEngine or data_provider internally need them with relative paths,
-    # this fallback won't fix that for them. The `python -m src.main` is more robust.
-
 
 def main():
-    parser = argparse.ArgumentParser(description="Stock Analysis CLI Tool (Stub)")
-    parser.add_argument("--stock_code", type=str, required=True, help="Stock code to analyze (e.g., SHA000001)")
+    parser = argparse.ArgumentParser(description="Stock Analysis CLI Tool")
+    parser.add_argument("--stock_code", type=str, required=True, 
+                        help="Stock code to analyze (e.g., '000001' for Ping An Bank, '600519' for Kweichow Moutai).")
+    # Optional: Add arguments for start_date and end_date if you want to allow user to specify
+    # parser.add_argument("--start_date", type=str, help="Start date for data fetching (YYYY-MM-DD)")
+    # parser.add_argument("--end_date", type=str, help="End date for data fetching (YYYY-MM-DD)")
     args = parser.parse_args()
 
-    print(f"Starting analysis for stock: {args.stock_code}")
+    print(f"--- Stock Analysis for: {args.stock_code} ---")
 
-    # 1. Fetch data (mock for now)
-    # Using the default 'daily' type as per instructions
-    stock_data = fetch_stock_data(args.stock_code) 
-    print(f"Fetched data: {stock_data}")
+    # 1. Fetch real stock data
+    print(f"Fetching historical data for {args.stock_code}...")
+    # Pass start_date and end_date if they are part of args and provided
+    # stock_data = fetch_stock_data(args.stock_code, start_date=args.start_date, end_date=args.end_date)
+    stock_data = fetch_stock_data(args.stock_code) # Using default date range in fetch_stock_data
+
+    if not stock_data:
+        print(f"Could not fetch data for {args.stock_code}. Please check the stock code or your network connection.")
+        return
+
+    print(f"Successfully fetched {len(stock_data)} records.")
+    if len(stock_data) > 0:
+        # Ensure date key exists before trying to access it, in case of unexpected empty but non-None stock_data
+        first_date = stock_data[0].get('date', 'N/A')
+        last_date = stock_data[-1].get('date', 'N/A')
+        print(f"Data from {first_date} to {last_date}.")
+        # print(f"Sample record (last day): {stock_data[-1]}") # Optional: print sample
 
     # 2. Initialize analysis engine
     engine = AnalysisEngine()
 
-    # 3. Define dummy indicator configurations
+    # 3. Define indicator configurations
     indicator_configs = {
-        'moving_average': {'window': 5}, # Example config
-        'rsi': {'period': 14}          # Example config
+        'moving_average': {'window': 20},  # Using a common 20-day MA
+        'rsi': {'period': 14}              # Standard 14-day RSI
     }
-    print(f"Using indicator configs: {indicator_configs}")
+    print(f"Using indicator configurations: MA({indicator_configs['moving_average']['window']}), RSI({indicator_configs['rsi']['period']})")
 
     # 4. Generate signals
+    print("Analyzing data and generating trading signal...")
     signal = engine.generate_signals(stock_data, indicator_configs)
-    print(f"Signal for {args.stock_code}: {signal}")
+    
+    print(f"\n--- Recommendation for {args.stock_code} ---")
+    print(f"Generated Signal: {signal}")
+    print("------------------------------------")
+    print("\nDisclaimer: This is a software-generated analysis based on technical indicators.")
+    print("It is not financial advice. Always do your own research before making any investment decisions.")
+
 
 if __name__ == "__main__":
-    # Notes from prompt:
-    # To make this runnable as a script from the project root (e.g. python src/main.py --stock_code X)
-    # we might need to adjust sys.path if direct relative imports fail.
-    # A common pattern is to add the project root to sys.path if not running as a package.
-    # However, for a simple stub, we'll keep it as is.
-    # If you encounter "ImportError: attempted relative import with no known parent package",
-    # running as `python -m src.main --stock_code YOUR_CODE_HERE` from the parent directory of `src`
-    # is the standard way to handle package imports.
+    # To run this from the project root:
+    # python -m src.main --stock_code 000001
+    # Or, if you've structured your project to handle direct execution from src/:
+    # python main.py --stock_code 000001 (might need PYTHONPATH adjustments)
     main()

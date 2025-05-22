@@ -1,2 +1,3 @@
 # Project dependencies will be listed here
-# For now, only standard library + argparse (which is standard) is assumed for stubs.
+akshare
+pandas
