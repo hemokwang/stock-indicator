@@ -10,9 +10,9 @@ The core functionality is based on technical indicator analysis to provide users
     - Moving Averages (MA)
     - Relative Strength Index (RSI)
 - Configurable analysis engine with strategy-based indicator parameters for different time horizons:
-    - Short-Term
-    - Medium-Term (Default)
-    - Long-Term
+    - Daily (Default)
+    - Weekly
+    - Monthly
 - Command-Line Interface (CLI) for running analysis.
 - Structured output including analysis parameters, results, explanation, and key indicator values.
 
@@ -29,53 +29,53 @@ The core functionality is based on technical indicator analysis to provide users
 To run the analysis, execute `src/main.py` from the project root directory using Python. You must provide a stock code. You can also specify a time horizon for the analysis.
 
 ```bash
-python -m src.main --stock_code <STOCK_CODE> [--time_horizon <HORIZON>]
+python -m src.main --stock_code <STOCK_CODE> [--timeframe <TIMEFRAME>]
 ```
 
 **Arguments:**
 *   `--stock_code`: (Required) The stock code to analyze (e.g., `000001` for Ping An Bank, `600519` for Kweichow Moutai).
-*   `--time_horizon`: (Optional) The analysis time horizon.
-    *   Choices: `short_term`, `medium_term`, `long_term`.
-    *   Default: `medium_term`.
+*   `--timeframe`: (Optional) The analysis timeframe.
+    *   Choices: `daily`, `weekly`, `monthly`.
+    *   Default: `daily`.
 
 ## Examples / Quick Reference
 
-*   Analyze a stock using the default medium-term strategy:
+*   Analyze a stock using the default daily strategy:
     ```bash
     python -m src.main --stock_code 000001
     ```
 
-*   Analyze a stock using the short-term strategy:
+*   Analyze a stock using the weekly strategy:
     ```bash
-    python -m src.main --stock_code 600519 --time_horizon short_term
+    python -m src.main --stock_code 600519 --timeframe weekly
     ```
 
-*   Analyze a stock using the long-term strategy:
+*   Analyze a stock using the monthly strategy:
     ```bash
-    python -m src.main --stock_code 000001 --time_horizon long_term
+    python -m src.main --stock_code 000001 --timeframe monthly
     ```
 
-## Analysis Strategies & Time Horizons
+## Analysis Strategies & Timeframes
 
-The software performs technical analysis based on a selected time horizon, each using a predefined set of indicators. The output includes a "Technical Outlook" (e.g., Bullish, Bearish, Neutral) and "Actionable Advice".
+The software performs technical analysis based on a selected timeframe, each using a predefined set of indicators. The output includes a "Technical Outlook" (e.g., Bullish, Bearish, Neutral) and "Actionable Advice".
 
-### Short-Term Strategy
-*   **Description:** Short-Term Analysis (e.g., days to a few weeks).
+### Daily Strategy (Default)
+*   **Description:** Next-day outlook based on very short-term indicators.
 *   **Default Indicators:**
-    *   Moving Averages (MA): 5-day, 10-day
+    *   Moving Averages (MA): `[3, 5, 10]`
     *   Relative Strength Index (RSI): 14-period
 
-### Medium-Term Strategy (Default)
-*   **Description:** Medium-Term Analysis (e.g., weeks to a few months).
+### Weekly Strategy
+*   **Description:** Outlook for the next ~5 trading days based on short-to-medium term indicators.
 *   **Default Indicators:**
-    *   Moving Averages (MA): 20-day, 60-day
+    *   Moving Averages (MA): `[10, 20]`
     *   Relative Strength Index (RSI): 14-period
 
-### Long-Term Strategy
-*   **Description:** Long-Term Analysis (e.g., several months to years).
+### Monthly Strategy
+*   **Description:** Outlook for the next ~20 trading days based on medium-term indicators.
 *   **Default Indicators:**
-    *   Moving Averages (MA): 50-day, 120-day, 200-day
-    *   Relative Strength Index (RSI): 21-period
+    *   Moving Averages (MA): `[20, 60]`
+    *   Relative Strength Index (RSI): 14-period
 
 ## Project Structure
 ```
