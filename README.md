@@ -5,12 +5,24 @@ The core functionality is based on technical indicator analysis to provide users
 
 ## Features
 - Data acquisition for A-share market (daily historical prices via `akshare`).
+- Fetching of basic stock information (e.g., stock name).
 - Calculation of common technical indicators:
     - Moving Averages (MA)
     - Relative Strength Index (RSI)
-- Configurable analysis engine with strategy-based indicator parameters.
-- Dynamic analysis based on selected time horizons (Short-Term, Medium-Term, Long-Term).
+- Configurable analysis engine with strategy-based indicator parameters for different time horizons:
+    - Short-Term
+    - Medium-Term (Default)
+    - Long-Term
 - Command-Line Interface (CLI) for running analysis.
+- Structured output including analysis parameters, results, explanation, and key indicator values.
+
+## Setup
+1.  Ensure Python 3.x is installed.
+2.  Clone the repository.
+3.  Install dependencies:
+    ```bash
+    pip install -r requirements.txt
+    ```
 
 ## How to Run
 
@@ -25,6 +37,23 @@ python -m src.main --stock_code <STOCK_CODE> [--time_horizon <HORIZON>]
 *   `--time_horizon`: (Optional) The analysis time horizon.
     *   Choices: `short_term`, `medium_term`, `long_term`.
     *   Default: `medium_term`.
+
+## Examples / Quick Reference
+
+*   Analyze a stock using the default medium-term strategy:
+    ```bash
+    python -m src.main --stock_code 000001
+    ```
+
+*   Analyze a stock using the short-term strategy:
+    ```bash
+    python -m src.main --stock_code 600519 --time_horizon short_term
+    ```
+
+*   Analyze a stock using the long-term strategy:
+    ```bash
+    python -m src.main --stock_code 000001 --time_horizon long_term
+    ```
 
 ## Analysis Strategies & Time Horizons
 
@@ -69,14 +98,6 @@ The software performs technical analysis based on a selected time horizon, each 
     ├── test_moving_average.py
     └── test_rsi.py
 ```
-
-## Setup
-1.  Ensure Python 3.x is installed.
-2.  Clone the repository.
-3.  Install dependencies:
-    ```bash
-    pip install -r requirements.txt
-    ```
 
 ## Future Enhancements (Planned)
 - Implementation of more technical indicators (e.g., MACD, Bollinger Bands).

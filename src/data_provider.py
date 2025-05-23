@@ -95,6 +95,38 @@ def fetch_stock_data(stock_code: str, data_type: str = 'daily', start_date: str 
         # More specific error handling could be added here based on common akshare exceptions
         return []
 
+def fetch_stock_basic_info(stock_code: str) -> dict:
+    '''
+    Fetches basic information for a given stock code, primarily its name.
+    Uses Eastmoney's API via akshare.
+    '''
+    print(f"Fetching basic info for {stock_code} using akshare.stock_individual_info_em...")
+    try:
+        # stock_individual_info_em returns a DataFrame with 'item' and 'value' columns
+        stock_info_df = akshare.stock_individual_info_em(symbol=stock_code)
+        
+        if stock_info_df.empty:
+            print(f"No basic info returned for {stock_code} from stock_individual_info_em.")
+            return {}
+
+        # Convert the DataFrame to a dictionary for easier lookup
+        # Example: item='股票名称', value='平安银行' becomes info_dict['股票名称'] = '平安银行'
+        info_dict = pd.Series(stock_info_df.value.values, index=stock_info_df.item).to_dict()
+
+        # Key for stock name in stock_individual_info_em is '股票简称'
+        stock_name = info_dict.get('股票简称') 
+        
+        if stock_name:
+            print(f"Found stock name: {stock_name} for code: {stock_code}")
+            return {'name': stock_name}
+        else:
+            print(f"Could not find stock name key ('股票简称') in info for {stock_code}. Available keys: {list(info_dict.keys())}")
+            return {}
+            
+    except Exception as e:
+        print(f"Error fetching basic info for {stock_code} using akshare.stock_individual_info_em: {e}")
+        return {}
+
 if __name__ == '__main__':
     print("Running data_provider.py example usage...")
     
@@ -116,21 +148,13 @@ if __name__ == '__main__':
     if data_moutai:
         print(f"Data for 600519 (first 3 records of last month): {data_moutai[:3]}")
 
-    # Example for an index (might require a different akshare function, stock_zh_a_hist is for individual stocks)
-    # For example, Shanghai Composite Index (sh000001)
-    # print("\nFetching data for Shanghai Composite Index (sh000001)...")
-    # data_sh_index = fetch_stock_data("sh000001", start_date=start_test_date, end_date=end_test_date) # This will likely fail or return empty with stock_zh_a_hist
-    # To fetch index data, one would use e.g. akshare.index_zh_a_hist(symbol='sh000001')
-    # print(f"Data for sh000001: {data_sh_index[:3] if data_sh_index else 'No data or wrong function used.'}")
-
-
-    # Invalid code example
+    # Invalid code example for fetch_stock_data
     print("\nFetching data for an invalid code (INVALIDCODE)...")
     data_invalid = fetch_stock_data("INVALIDCODE", start_date=start_test_date, end_date=end_test_date)
     if not data_invalid:
         print("No data for INVALIDCODE as expected.")
 
-    # Test with default dates (last 1 year)
+    # Test with default dates (last 1 year) for fetch_stock_data
     print("\nFetching data for 000002 (Vanke) with default dates (last 1 year)...")
     data_vanke_default_dates = fetch_stock_data("000002")
     if data_vanke_default_dates:
@@ -138,3 +162,27 @@ if __name__ == '__main__':
         print(f"Total records for 000002 (last 1 year): {len(data_vanke_default_dates)}")
     else:
         print("No data for 000002 with default dates.")
+    
+    # --- Testing fetch_stock_basic_info ---
+    print("\n--- Testing fetch_stock_basic_info ---")
+
+    # Test fetch_stock_basic_info with a valid stock code
+    info1 = fetch_stock_basic_info("000001") # Ping An Bank
+    if info1 and info1.get('name'):
+        print(f"Fetched Info for 000001: Name - {info1['name']}")
+    else:
+        print(f"Failed to fetch or find name for 000001. Result: {info1}")
+
+    # Test with another valid stock code
+    info2 = fetch_stock_basic_info("600519") # Kweichow Moutai
+    if info2 and info2.get('name'):
+        print(f"Fetched Info for 600519: Name - {info2['name']}")
+    else:
+        print(f"Failed to fetch or find name for 600519. Result: {info2}")
+        
+    # Test with an invalid stock code
+    info_invalid_basic = fetch_stock_basic_info("999999") # Invalid code
+    if not info_invalid_basic or not info_invalid_basic.get('name'): # Expect empty dict or dict without 'name'
+        print(f"Correctly handled invalid code 999999 for basic info. Result: {info_invalid_basic}")
+    else:
+        print(f"Unexpectedly found info for invalid code 999999: {info_invalid_basic}")
