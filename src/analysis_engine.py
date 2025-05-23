@@ -8,9 +8,9 @@ class AnalysisEngine:
     def __init__(self):
         print("AnalysisEngine initialized (for dynamic time horizons).")
 
-    def generate_signals(self, stock_data: list, time_horizon: str):
+    def generate_signals(self, stock_data: list, timeframe: str): # Renamed time_horizon to timeframe
         # Default return structure for errors, including time_horizon_applied
-        time_horizon_capitalized = time_horizon.capitalize() if isinstance(time_horizon, str) else "Unknown"
+        time_horizon_capitalized = timeframe.capitalize() if isinstance(timeframe, str) else "Unknown" # Use timeframe
         
         error_return_template = {
             'outlook': 'ERROR', 
@@ -58,12 +58,12 @@ class AnalysisEngine:
             error_return_template['explanation'] = f"Error accessing close prices: {e}."
             return error_return_template
 
-        if time_horizon not in STRATEGY_CONFIGS:
+        if timeframe not in STRATEGY_CONFIGS: # Use timeframe
             error_return_template['outlook'] = 'CONFIG_ERROR'
-            error_return_template['explanation'] = f"Invalid time_horizon '{time_horizon}' specified."
+            error_return_template['explanation'] = f"Invalid timeframe '{timeframe}' specified." # Use timeframe
             return error_return_template
             
-        strategy_config_full = STRATEGY_CONFIGS[time_horizon]
+        strategy_config_full = STRATEGY_CONFIGS[timeframe] # Use timeframe
         config = strategy_config_full['indicators']
         config_description = strategy_config_full['description']
         # Update time_horizon_applied with the more descriptive version from config
@@ -75,7 +75,7 @@ class AnalysisEngine:
         ma_windows = config.get('moving_averages', {}).get('windows', [])
         if not ma_windows: # Ensure there's at least one MA window defined for core logic
             error_return_template['outlook'] = 'CONFIG_ERROR'
-            error_return_template['explanation'] = f"No MA windows defined for {time_horizon} in strategy_configs."
+            error_return_template['explanation'] = f"No MA windows defined for {timeframe} in strategy_configs." # Use timeframe
             error_return_template['config_used'] = config
             return error_return_template
             
@@ -92,7 +92,7 @@ class AnalysisEngine:
             calculated_indicator_values[f'RSI_{rsi_period}'] = latest_rsi
         else:
             error_return_template['outlook'] = 'CONFIG_ERROR'
-            error_return_template['explanation'] = f"RSI period not defined for {time_horizon} in strategy_configs."
+            error_return_template['explanation'] = f"RSI period not defined for {timeframe} in strategy_configs." # Use timeframe
             error_return_template['config_used'] = config
             return error_return_template
 
@@ -128,108 +128,57 @@ class AnalysisEngine:
         rsi_buy_threshold = 30 
         rsi_sell_threshold = 70
 
-        if time_horizon == 'short_term':
-            ma_short1_val = calculated_indicator_values.get(f'MA_{ma_windows[0]}') # e.g. MA_5
-            ma_short2_val = calculated_indicator_values.get(f'MA_{ma_windows[1]}') # e.g. MA_10
-            ma_short1_fmt = format_val(ma_short1_val)
-            ma_short2_fmt = format_val(ma_short2_val)
+        if timeframe == 'daily':
+            ma_short1 = calculated_indicator_values.get(f'MA_{ma_windows[0]}') 
+            ma_short2 = calculated_indicator_values.get(f'MA_{ma_windows[1]}') 
+            ma_short3 = calculated_indicator_values.get(f'MA_{ma_windows[2]}') 
 
-            if ma_short1_val is not None and ma_short2_val is not None and rsi_val is not None:
-                if latest_close_price > ma_short1_val and ma_short1_val > ma_short2_val and rsi_val < rsi_sell_threshold:
+            ma_short1_fmt = format_val(ma_short1)
+            ma_short2_fmt = format_val(ma_short2)
+            ma_short3_fmt = format_val(ma_short3)
+            
+            if all(v is not None for v in [ma_short1, ma_short2, ma_short3, rsi_val]):
+                if latest_close_price > ma_short1 and \
+                   ma_short1 > ma_short2 and ma_short2 > ma_short3 and \
+                   rsi_val < rsi_sell_threshold:
                     outlook = 'BULLISH'
-                    explanation_details.append(f"Price ({latest_close_fmt}) > MA({ma_windows[0]}) ({ma_short1_fmt}).")
-                    explanation_details.append(f"MA({ma_windows[0]}) ({ma_short1_fmt}) > MA({ma_windows[1]}) ({ma_short2_fmt}) (bullish MA cross).")
-                    explanation_details.append(f"RSI({rsi_period}) ({rsi_fmt}) < {rsi_sell_threshold} (not overbought).")
-                elif latest_close_price < ma_short1_val and ma_short1_val < ma_short2_val and rsi_val > rsi_buy_threshold:
+                    explanation_details.append(f"Price ({latest_close_fmt}) is above key short-term MAs (MA{ma_windows[0]}={ma_short1_fmt}, MA{ma_windows[1]}={ma_short2_fmt}).")
+                    explanation_details.append(f"Short-term MAs (MA{ma_windows[0]}, MA{ma_windows[1]}, MA{ma_windows[2]}) are aligned bullishly ({ma_short1_fmt} > {ma_short2_fmt} > {ma_short3_fmt}).")
+                    explanation_details.append(f"RSI({rsi_period}) at {rsi_fmt} indicates upward momentum and is not overbought (<{rsi_sell_threshold}).")
+                elif latest_close_price < ma_short1 and \
+                     ma_short1 < ma_short2 and ma_short2 < ma_short3 and \
+                     rsi_val > rsi_buy_threshold:
                     outlook = 'BEARISH'
-                    explanation_details.append(f"Price ({latest_close_fmt}) < MA({ma_windows[0]}) ({ma_short1_fmt}).")
-                    explanation_details.append(f"MA({ma_windows[0]}) ({ma_short1_fmt}) < MA({ma_windows[1]}) ({ma_short2_fmt}) (bearish MA cross).")
-                    explanation_details.append(f"RSI({rsi_period}) ({rsi_fmt}) > {rsi_buy_threshold} (not oversold).")
+                    explanation_details.append(f"Price ({latest_close_fmt}) is below key short-term MAs (MA{ma_windows[0]}={ma_short1_fmt}, MA{ma_windows[1]}={ma_short2_fmt}).")
+                    explanation_details.append(f"Short-term MAs (MA{ma_windows[0]}, MA{ma_windows[1]}, MA{ma_windows[2]}) are aligned bearishly ({ma_short1_fmt} < {ma_short2_fmt} < {ma_short3_fmt}).")
+                    explanation_details.append(f"RSI({rsi_period}) at {rsi_fmt} indicates downward momentum and is not oversold (>{rsi_buy_threshold}).")
                 else:
-                    explanation_details.append(f"Conditions for clear Bullish/Bearish outlook not met. Price: {latest_close_fmt}, MA({ma_windows[0]}): {ma_short1_fmt}, MA({ma_windows[1]}): {ma_short2_fmt}, RSI({rsi_period}): {rsi_fmt}.")
-            else: # Should be caught by essential_indicators_missing, but as safeguard
-                outlook = 'INSUFFICIENT_DATA'
-                explanation_details.append(f"One or more indicators for short-term strategy were None. MA({ma_windows[0]}): {ma_short1_fmt}, MA({ma_windows[1]}): {ma_short2_fmt}, RSI({rsi_period}): {rsi_fmt}.")
-
-
-        elif time_horizon == 'medium_term':
-            ma1_val = calculated_indicator_values.get(f'MA_{ma_windows[0]}') # e.g. MA_20
-            ma2_val = calculated_indicator_values.get(f'MA_{ma_windows[1]}') # e.g. MA_60
-            ma1_fmt = format_val(ma1_val)
-            ma2_fmt = format_val(ma2_val)
-
-            if ma1_val is not None and ma2_val is not None and rsi_val is not None:
-                bullish_conditions_met = (
-                    latest_close_price > ma1_val and latest_close_price > ma2_val and 
-                    ma1_val > ma2_val and rsi_val < rsi_sell_threshold
-                )
-                bearish_conditions_met = (
-                    latest_close_price < ma1_val and latest_close_price < ma2_val and
-                    ma1_val < ma2_val and rsi_val > rsi_buy_threshold
-                )
-                if bullish_conditions_met:
-                    outlook = 'BULLISH'
-                    explanation_details.append(f"Price ({latest_close_fmt}) > MA({ma_windows[0]}) ({ma1_fmt}) and > MA({ma_windows[1]}) ({ma2_fmt}).")
-                    explanation_details.append(f"MA({ma_windows[0]}) ({ma1_fmt}) > MA({ma_windows[1]}) ({ma2_fmt}) (bullish MA setup).")
-                    explanation_details.append(f"RSI({rsi_period}) ({rsi_fmt}) < {rsi_sell_threshold} (not overbought).")
-                elif bearish_conditions_met:
-                    outlook = 'BEARISH'
-                    explanation_details.append(f"Price ({latest_close_fmt}) < MA({ma_windows[0]}) ({ma1_fmt}) and < MA({ma_windows[1]}) ({ma2_fmt}).")
-                    explanation_details.append(f"MA({ma_windows[0]}) ({ma1_fmt}) < MA({ma_windows[1]}) ({ma2_fmt}) (bearish MA setup).")
-                    explanation_details.append(f"RSI({rsi_period}) ({rsi_fmt}) > {rsi_buy_threshold} (not oversold).")
-                else:
-                    explanation_details.append(f"Conditions for clear Bullish/Bearish outlook not met. Price: {latest_close_fmt}, MA({ma_windows[0]}): {ma1_fmt}, MA({ma_windows[1]}): {ma2_fmt}, RSI({rsi_period}): {rsi_fmt}.")
-            else: # Safeguard
-                outlook = 'INSUFFICIENT_DATA'
-                explanation_details.append(f"One or more indicators for medium-term strategy were None. MA({ma_windows[0]}): {ma1_fmt}, MA({ma_windows[1]}): {ma2_fmt}, RSI({rsi_period}): {rsi_fmt}.")
-
-        elif time_horizon == 'long_term':
-            # Example: MA(50), MA(120), MA(200), RSI(21)
-            # Using first two MAs for trend, price vs all MAs, and RSI
-            ma_long1_val = calculated_indicator_values.get(f'MA_{ma_windows[0]}') # e.g. MA_50
-            ma_long2_val = calculated_indicator_values.get(f'MA_{ma_windows[1]}') # e.g. MA_120
-            ma_long3_val = calculated_indicator_values.get(f'MA_{ma_windows[2]}') # e.g. MA_200
-            ma_long1_fmt = format_val(ma_long1_val)
-            ma_long2_fmt = format_val(ma_long2_val)
-            ma_long3_fmt = format_val(ma_long3_val)
-
-            if ma_long1_val is not None and ma_long2_val is not None and ma_long3_val is not None and rsi_val is not None:
-                price_above_all_mas = latest_close_price > ma_long1_val and latest_close_price > ma_long2_val and latest_close_price > ma_long3_val
-                mas_bullish_order = ma_long1_val > ma_long2_val # and ma_long2_val > ma_long3_val (optional stricter)
-                
-                price_below_all_mas = latest_close_price < ma_long1_val and latest_close_price < ma_long2_val and latest_close_price < ma_long3_val
-                mas_bearish_order = ma_long1_val < ma_long2_val # and ma_long2_val < ma_long3_val (optional stricter)
-
-                if price_above_all_mas and mas_bullish_order and rsi_val < rsi_sell_threshold:
-                    outlook = 'BULLISH'
-                    explanation_details.append(f"Price ({latest_close_fmt}) above all key MAs (MA{ma_windows[0]}: {ma_long1_fmt}, MA{ma_windows[1]}: {ma_long2_fmt}, MA{ma_windows[2]}: {ma_long3_fmt}).")
-                    explanation_details.append(f"Primary MAs in bullish order (MA{ma_windows[0]} > MA{ma_windows[1]}).")
-                    explanation_details.append(f"RSI({rsi_period}) ({rsi_fmt}) < {rsi_sell_threshold} (not overbought).")
-                elif price_below_all_mas and mas_bearish_order and rsi_val > rsi_buy_threshold:
-                    outlook = 'BEARISH'
-                    explanation_details.append(f"Price ({latest_close_fmt}) below all key MAs (MA{ma_windows[0]}: {ma_long1_fmt}, MA{ma_windows[1]}: {ma_long2_fmt}, MA{ma_windows[2]}: {ma_long3_fmt}).")
-                    explanation_details.append(f"Primary MAs in bearish order (MA{ma_windows[0]} < MA{ma_windows[1]}).")
-                    explanation_details.append(f"RSI({rsi_period}) ({rsi_fmt}) > {rsi_buy_threshold} (not oversold).")
-                else:
-                    explanation_details.append(f"Conditions for clear Bullish/Bearish outlook not met. Price: {latest_close_fmt}, MAs: {ma_long1_fmt}, {ma_long2_fmt}, {ma_long3_fmt}, RSI: {rsi_fmt}.")
-            else: # Safeguard
-                outlook = 'INSUFFICIENT_DATA'
-                explanation_details.append(f"One or more indicators for long-term strategy were None.")
+                    outlook = 'NEUTRAL_WAIT'
+                    explanation_details.append(f"Conditions for strong daily outlook not met. Price: {latest_close_fmt}, MAs({ma_windows[0]},{ma_windows[1]},{ma_windows[2]}): {ma_short1_fmt},{ma_short2_fmt},{ma_short3_fmt}, RSI({rsi_period}): {rsi_fmt}.")
+            else:
+                outlook = 'INSUFFICIENT_DATA' 
+                explanation_details.append(f"One or more critical 'daily' indicators were not available. MA{ma_windows[0]}:{ma_short1_fmt}, MA{ma_windows[1]}:{ma_short2_fmt}, MA{ma_windows[2]}:{ma_short3_fmt}, RSI({rsi_period}):{rsi_fmt}.")
         
-        else: # Should not be reached if time_horizon is validated against STRATEGY_CONFIGS keys
-             outlook = 'CONFIG_ERROR'
-             explanation_details.append(f"Time horizon '{time_horizon}' not recognized or logic not implemented.")
+        elif timeframe == 'weekly':
+            outlook = 'NEUTRAL_WAIT'
+            explanation_details.append(f"Specific logic for '{timeframe}' timeframe is pending. Defaulting to NEUTRAL_WAIT.")
+        elif timeframe == 'monthly':
+            outlook = 'NEUTRAL_WAIT'
+            explanation_details.append(f"Specific logic for '{timeframe}' timeframe is pending. Defaulting to NEUTRAL_WAIT.")
+        
+        else: 
+             outlook = 'CONFIG_ERROR' 
+             explanation_details.append(f"Timeframe '{timeframe}' logic not implemented or timeframe unrecognized after initial validation. Defaulting outlook.")
 
         final_explanation = f"Outlook: {outlook} ({config_description}). Reasons: {' '.join(explanation_details)}"
-        if not explanation_details: # If for some reason details list is empty
+        if not explanation_details: 
             final_explanation = f"Outlook: {outlook} ({config_description}). No specific conditions logged for this outlook."
-
 
         return {
             'outlook': outlook,
-            'time_horizon_applied': config_description, # Use the descriptive name
+            'time_horizon_applied': config_description, 
             'latest_close': latest_close_price,
-            'indicator_values': {k: format_val(v) for k,v in calculated_indicator_values.items()}, # Store formatted values
+            'indicator_values': {k: format_val(v) for k,v in calculated_indicator_values.items()}, 
             'explanation': final_explanation,
             'config_used': config 
         }
@@ -237,68 +186,131 @@ class AnalysisEngine:
 if __name__ == '__main__':
     engine = AnalysisEngine()
     
-    # Generate more comprehensive mock data for testing
-    def generate_mock_data(num_points, start_price=50.0, trend='neutral'):
+    def generate_mock_data(num_points, start_price=50.0, trend='neutral', volatility=0.5):
         data = []
         price = start_price
+        import random
         for i in range(num_points):
             if trend == 'bullish':
-                price += 0.1 * (i % 5 + 1) - 0.2 # General upward trend with some noise
+                price_change = random.uniform(0, volatility) + 0.05 # Skew positive
             elif trend == 'bearish':
-                price -= 0.1 * (i % 5 + 1) - 0.2 # General downward trend
+                price_change = random.uniform(-volatility, 0) - 0.05 # Skew negative
             else: # neutral / mixed
-                price += 0.1 * ( (i % 5 + 1) if i%2==0 else -(i%3+1) ) # more sideways
-            price = max(price, 1.0) # Ensure price is positive
+                price_change = random.uniform(-volatility/2, volatility/2)
+            price += price_change
+            price = max(price, 1.0) 
             data.append({'date': f'2023-01-{i+1:02d}', 'close': round(price,2)})
         return data
 
     print("\n--- Testing AnalysisEngine with Dynamic Time Horizons ---")
     
-    # Test Data - make it long enough for long-term MAs (e.g., 200 days for MA200)
-    test_data_bullish = generate_mock_data(250, trend='bullish')
-    test_data_bearish = generate_mock_data(250, trend='bearish')
-    test_data_neutral = generate_mock_data(250, trend='neutral')
-    test_data_short = generate_mock_data(20) # For insufficient data tests for longer horizons
+    # Test Data
+    # Daily strategy: MAs [3,5,10], RSI 14. Needs min 15 data points.
+    # Weekly strategy: MAs [10,20], RSI 14. Needs min 21 data points.
+    # Monthly strategy: MAs [20,60], RSI 14. Needs min 61 data points.
+    
+    test_data_bullish_long = generate_mock_data(65, trend='bullish', start_price=100)
+    test_data_bearish_long = generate_mock_data(65, trend='bearish', start_price=150)
+    test_data_neutral_long = generate_mock_data(65, trend='neutral', start_price=120)
+    
+    # Specific data for daily tests to try and trigger conditions
+    # Bullish: Price > MA3, MA3 > MA5, MA5 > MA10, RSI < 70
+    data_daily_bullish_custom = [
+        # Creates an upward trend with MAs aligning
+        {'close': 100}, {'close': 101}, {'close': 102}, {'close': 103}, {'close': 104}, 
+        {'close': 105}, {'close': 106}, {'close': 107}, {'close': 108}, {'close': 109},
+        {'close': 110}, {'close': 111}, {'close': 112}, {'close': 113}, {'close': 114}, # 15 points
+        {'close': 115}, {'close': 116} 
+    ] * 2 # Make it longer to stabilize RSI if needed, total 34 points to be safe for RSI 14
 
-    horizons_to_test = ['short_term', 'medium_term', 'long_term']
-    datasets_to_test = {
-        "Bullish Data": test_data_bullish,
-        "Bearish Data": test_data_bearish,
-        "Neutral Data": test_data_neutral
-    }
+    # Bearish: Price < MA3, MA3 < MA5, MA5 < MA10, RSI > 30
+    data_daily_bearish_custom = [
+        {'close': 116}, {'close': 115}, {'close': 114}, {'close': 113}, {'close': 112},
+        {'close': 111}, {'close': 110}, {'close': 109}, {'close': 108}, {'close': 107},
+        {'close': 106}, {'close': 105}, {'close': 104}, {'close': 103}, {'close': 102}, # 15 points
+        {'close': 101}, {'close': 100}
+    ] * 2 # 34 points
 
-    for name, data in datasets_to_test.items():
-        print(f"\n--- Dataset: {name} (Length: {len(data)}) ---")
-        for th in horizons_to_test:
-            print(f"\n-- Time Horizon: {th} --")
-            result = engine.generate_signals(data, th)
-            print(f"Outlook: {result['outlook']}")
-            # print(f"Time Horizon Applied: {result['time_horizon_applied']}")
-            # print(f"Latest Close: {result['latest_close']}")
-            # print(f"Indicator Values: {result['indicator_values']}")
-            print(f"Explanation: {result['explanation']}")
-            # print(f"Config Used: {result['config_used']}")
-            print("-" * 30)
+    # Neutral: Price action that doesn't meet strong bullish/bearish criteria
+    data_daily_neutral_custom = [
+        {'close': 100}, {'close': 101}, {'close': 100}, {'close': 101}, {'close': 102}, 
+        {'close': 101}, {'close': 102}, {'close': 101}, {'close': 100}, {'close': 101},
+        {'close': 100}, {'close': 99},  {'close': 100}, {'close': 101}, {'close': 100}, # 15 points
+        {'close': 100}, {'close': 100}
+    ] * 2 # 34 points
 
-    print("\n--- Testing Edge Cases ---")
-    print("\n-- Short Data for Long Term --")
-    result_short_long = engine.generate_signals(test_data_short, 'long_term')
-    print(f"Outlook: {result_short_long['outlook']}")
-    print(f"Explanation: {result_short_long['explanation']}")
+    data_daily_insufficient = [{'close': i+100} for i in range(5)] # Only 5 data points
 
-    print("\n-- Invalid Time Horizon --")
-    result_invalid_th = engine.generate_signals(test_data_neutral, 'invalid_horizon')
-    print(f"Outlook: {result_invalid_th['outlook']}")
-    print(f"Explanation: {result_invalid_th['explanation']}")
+
+    print("\n--- Testing 'daily' Timeframe ---")
+    print("\n** Daily Bullish Test (Custom Data) **")
+    result_db = engine.generate_signals(data_daily_bullish_custom, 'daily')
+    print(f"Outlook: {result_db.get('outlook')}")
+    print(f"Explanation: {result_db.get('explanation')}")
+    print(f"Indicator Values: {result_db.get('indicator_values')}")
+
+    print("\n** Daily Bearish Test (Custom Data) **")
+    result_dbr = engine.generate_signals(data_daily_bearish_custom, 'daily')
+    print(f"Outlook: {result_dbr.get('outlook')}")
+    print(f"Explanation: {result_dbr.get('explanation')}")
+    print(f"Indicator Values: {result_dbr.get('indicator_values')}")
+
+    print("\n** Daily Neutral Test (Custom Data) **")
+    result_dn = engine.generate_signals(data_daily_neutral_custom, 'daily')
+    print(f"Outlook: {result_dn.get('outlook')}")
+    print(f"Explanation: {result_dn.get('explanation')}")
+    print(f"Indicator Values: {result_dn.get('indicator_values')}")
+    
+    print("\n** Daily Insufficient Data Test **")
+    result_di = engine.generate_signals(data_daily_insufficient, 'daily')
+    print(f"Outlook: {result_di.get('outlook')}")
+    print(f"Explanation: {result_di.get('explanation')}")
+    # Indicator values might be partially filled or all None, good to see
+    print(f"Indicator Values: {result_di.get('indicator_values')}")
+
+
+    # Keep existing general tests for other timeframes and edge cases
+    # The horizons_to_test should be updated to the new keys
+    # The old 'short_term', 'medium_term', 'long_term' keys are no longer in STRATEGY_CONFIGS
+    # So the old loop `for th in horizons_to_test:` will fail or test nothing relevant.
+    # I will comment out that old loop for now.
+    # New tests for 'weekly' and 'monthly' would be added similarly to 'daily'.
+
+    # horizons_to_test_old_keys = ['short_term', 'medium_term', 'long_term'] # These are now invalid
+    # datasets_to_test = {
+    #     "Bullish Data (Long)": test_data_bullish_long,
+    #     "Bearish Data (Long)": test_data_bearish_long,
+    #     "Neutral Data (Long)": test_data_neutral_long
+    # }
+    # for name, data in datasets_to_test.items():
+    #     print(f"\n--- Dataset: {name} (Length: {len(data)}) ---")
+    #     for th_old in horizons_to_test_old_keys: # This loop will cause errors due to invalid keys
+    #         print(f"\n-- (Old Key Test) Time Horizon: {th_old} --")
+    #         # This call will now fail with CONFIG_ERROR due to invalid timeframe key
+    #         result = engine.generate_signals(data, th_old) 
+    #         print(f"Outlook: {result['outlook']}")
+    #         print(f"Explanation: {result['explanation']}")
+    #         print("-" * 30)
+
+
+    print("\n--- Testing Other Edge Cases (using 'daily' or 'weekly' as example valid timeframes) ---")
+    
+    # Test with data long enough for 'daily' but maybe not for 'weekly'/'monthly' if those were tested here.
+    test_data_generic = generate_mock_data(30, trend='neutral') # 30 points
+
+    print("\n-- Invalid Timeframe (was Invalid Time Horizon) --")
+    result_invalid_tf = engine.generate_signals(test_data_generic, 'invalid_timeframe')
+    print(f"Outlook: {result_invalid_tf['outlook']}")
+    print(f"Explanation: {result_invalid_tf['explanation']}")
 
     print("\n-- Empty Data --")
-    result_empty = engine.generate_signals([], 'medium_term')
+    result_empty = engine.generate_signals([], 'daily') # Use a valid timeframe key
     print(f"Outlook: {result_empty['outlook']}")
     print(f"Explanation: {result_empty['explanation']}")
     
     print("\n-- Data Format Error (bad item) --")
     bad_data = [{'price': 10}] * 30 # 'close' key missing
-    result_bad_fmt = engine.generate_signals(bad_data, 'short_term')
+    result_bad_fmt = engine.generate_signals(bad_data, 'daily') # Use a valid timeframe key
     print(f"Outlook: {result_bad_fmt['outlook']}")
     print(f"Explanation: {result_bad_fmt['explanation']}")
 
