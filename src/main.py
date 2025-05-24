@@ -1,13 +1,6 @@
 import argparse
-try:
-    from rich.console import Console
-    from rich.table import Table
-    from rich.text import Text
-    from rich.panel import Panel # For disclaimer
-    from rich import box # Added for box styles
-    RICH_AVAILABLE = True
-except ImportError:
-    RICH_AVAILABLE = False
+import textwrap # Added
+from tabulate import tabulate # Added
 
 try:
     from .data_provider import fetch_stock_data, fetch_stock_basic_info
@@ -19,14 +12,6 @@ except ImportError:
     from strategy_configs import STRATEGY_CONFIGS
 
 def main():
-    if RICH_AVAILABLE:
-        console = Console()
-    else:
-        # Fallback print function if rich is not available
-        def fallback_print(*args, **kwargs):
-            print(*args, **kwargs)
-        # console_print = fallback_print # This variable was defined but not used. Removed.
-
     parser = argparse.ArgumentParser(description="Stock Analysis CLI Tool")
     parser.add_argument("--stock_code", type=str, required=True, 
                         help="Stock code to analyze (e.g., '000001', '600519').")
@@ -40,7 +25,7 @@ def main():
     if stock_info and stock_info.get('name'):
         stock_display_name_formatted = f"{stock_info['name']} ({args.stock_code})"
     
-    # Keep initial prints as is
+    # Initial prints (preserved)
     print(f"--- Initializing Stock Analysis for: {stock_display_name_formatted} ---")
     print(f"Requested Timeframe: {args.timeframe.capitalize()}")
     print(f"Fetching historical data for {args.stock_code}...")
@@ -51,31 +36,25 @@ def main():
         "Disclaimer: This is a software-generated analysis based on technical indicators.\n"
         "It is not financial advice. Always do your own research before making any investment decisions."
     )
-    
-    # Print section titles before tables if titles are removed from Table constructor
-    section_title_style = "bold underline"
 
+    # Data fetch failure handling (preserved)
     if not stock_data:
         message = f"\nCould not fetch data for {args.stock_code}. Please check the stock code or your network connection."
-        if RICH_AVAILABLE:
-            console.print(message, style="bold red")
-            console.print(Panel(disclaimer_text, title="[bold yellow]Important Note[/bold yellow]", border_style="yellow", box=box.SQUARE))
-        else:
-            print(message)
-            print("============================================================")
-            print(disclaimer_text)
-            print("============================================================")
+        print(message)
+        print("============================================================")
+        print(disclaimer_text) # Disclaimer printed here for this specific error case
+        print("============================================================")
         return
 
     engine = AnalysisEngine()
     analysis_result = engine.generate_signals(stock_data, args.timeframe) 
 
+    # --- Prepare data for tabulation ---
     date_of_latest_data = stock_data[-1].get('date', 'N/A') if stock_data else 'N/A'
     latest_closing_price_val = analysis_result.get('latest_close')
     latest_closing_price_display = f"{latest_closing_price_val:.2f}" if latest_closing_price_val is not None else "N/A"
     if latest_closing_price_val is None and analysis_result.get('outlook') in ['DATA_FORMAT_ERROR', 'NO_DATA']:
         latest_closing_price_display = "N/A (Data Error)"
-
 
     timeframe_selected_display = args.timeframe.capitalize() 
     strategy_description = analysis_result.get('time_horizon_applied', args.timeframe.capitalize()) 
@@ -90,11 +69,10 @@ def main():
     if rsi_period_used_val != 'N/A':
          indicator_config_display_parts.append(f"RSI Period {rsi_period_used_val}")
     
-    indicator_config_display = ", ".join(indicator_config_display_parts) if indicator_config_display_parts else "N/A"
+    indicator_config_display_str = ", ".join(indicator_config_display_parts) if indicator_config_display_parts else "N/A"
 
     if analysis_result.get('outlook') == 'CONFIG_ERROR':
-        indicator_config_display = "N/A (Configuration Error)"
-
+        indicator_config_display_str = "N/A (Configuration Error)"
 
     technical_outlook_val = analysis_result.get('outlook', 'N/A')
     explanation_val = analysis_result.get('explanation', 'No explanation provided.')
@@ -110,83 +88,57 @@ def main():
         actionable_advice_val = f"Specific advice cannot be determined due to: {technical_outlook_val}"
     else: actionable_advice_val = f"Analysis resulted in '{technical_outlook_val}'."
 
-    if RICH_AVAILABLE:
-        console.print(f"\nStock Analysis Report for: {stock_display_name_formatted}", style=section_title_style)
+    # --- Start of Tabulated Output ---
+    print(f"\n--- Stock Analysis Report for: {stock_display_name_formatted} ---")
+
+    # Table 1: General Information & Parameters
+    print("\n--- General Information & Parameters ---")
+    general_info_data = [
+        ["Stock", stock_display_name_formatted],
+        ["Date of Latest Data", date_of_latest_data],
+        ["Latest Closing Price", latest_closing_price_display],
+        ["Timeframe Selected", timeframe_selected_display],
+        ["Strategy Used", strategy_description],
+    ]
+    if technical_outlook_val not in ['CONFIG_ERROR']: # Add indicator config only if not a config error
+        general_info_data.append(["Indicator Config", indicator_config_display_str])
+    else:
+        general_info_data.append(["Indicator Config", "N/A (Configuration Error)"])
         
-        # Table 1: General Information & Parameters
-        table1 = Table(box=box.SQUARE, show_header=True, header_style="bold", row_styles=["", "dim"])
-        table1.add_column("Feature", style="dim", width=30)
-        table1.add_column("Value")
-        table1.add_row("Stock", stock_display_name_formatted)
-        table1.add_row("Date of Latest Data", date_of_latest_data)
-        table1.add_row("Latest Closing Price", latest_closing_price_display)
-        table1.add_row("Timeframe Selected", timeframe_selected_display)
-        table1.add_row("Strategy Used", strategy_description)
-        if technical_outlook_val not in ['CONFIG_ERROR']:
-             table1.add_row("Indicator Config", indicator_config_display)
-        console.print(table1)
+    print(tabulate(general_info_data, headers=["Feature", "Value"], tablefmt="fancy_grid"))
 
-        console.print("\nAnalysis Results", style=section_title_style)
-        # Table 2: Analysis Results
-        table2 = Table(box=box.SQUARE, show_header=True, header_style="bold", row_styles=["", "dim"])
-        table2.add_column("Category", style="dim", width=30)
-        table2.add_column("Details")
-        table2.add_row("Technical Outlook", technical_outlook_val)
-        table2.add_row("Actionable Advice", actionable_advice_val)
-        table2.add_row("Explanation", Text(explanation_val, overflow="fold")) # Ensure text wrapping
-        console.print(table2)
+    # Table 2: Analysis Results
+    print("\n--- Analysis Results ---")
+    explanation_wrapped = textwrap.fill(explanation_val, width=80) # Adjusted width
+    analysis_results_data = [
+        ["Technical Outlook", technical_outlook_val],
+        ["Actionable Advice", actionable_advice_val],
+        ["Explanation", explanation_wrapped]
+    ]
+    print(tabulate(analysis_results_data, headers=["Category", "Details"], tablefmt="fancy_grid"))
 
-        # Table 3: Indicator Values
-        if indicator_values_dict and technical_outlook_val not in ['CONFIG_ERROR', 'DATA_FORMAT_ERROR', 'NO_DATA', 'ERROR']:
-            console.print("\nIndicator Values", style=section_title_style)
-            table3 = Table(box=box.SQUARE, show_header=True, header_style="bold", row_styles=["", "dim"])
-            table3.add_column("Indicator", style="dim", width=30)
-            table3.add_column("Value")
-            for key, value in indicator_values_dict.items():
-                table3.add_row(key, str(value))
-            if table3.rows: 
-                 console.print(table3)
-        elif technical_outlook_val not in ['CONFIG_ERROR', 'DATA_FORMAT_ERROR', 'NO_DATA', 'ERROR', 'INSUFFICIENT_DATA']:
-             # Using a simple print for this conditional message as it's not tabular data.
-            console.print("\nIndicator Values: Not available for this outlook.", style="italic")
-        
-        console.print(Panel(disclaimer_text, title="[bold yellow]Important Note[/bold yellow]", border_style="yellow", box=box.SQUARE))
+    # Table 3: Indicator Values (Conditional)
+    print("\n--- Indicator Values ---")
+    indicator_data_for_table = []
+    if indicator_values_dict and technical_outlook_val not in ['CONFIG_ERROR', 'DATA_FORMAT_ERROR', 'NO_DATA', 'ERROR']:
+        for key, value in indicator_values_dict.items():
+            if isinstance(value, float): value_str = f"{value:.2f}"
+            elif isinstance(value, list): value_str = ", ".join(map(str, value))
+            else: value_str = str(value)
+            indicator_data_for_table.append([key, value_str])
+    
+    if indicator_data_for_table:
+        print(tabulate(indicator_data_for_table, headers=["Indicator", "Value"], tablefmt="fancy_grid"))
+    elif technical_outlook_val not in ['CONFIG_ERROR', 'DATA_FORMAT_ERROR', 'NO_DATA', 'ERROR', 'INSUFFICIENT_DATA']:
+        print("Indicator Values: Not available for this outlook.")
+    else: # Covers CONFIG_ERROR, DATA_FORMAT_ERROR etc. where indicators might be meaningless
+        print("Indicator Values: Not applicable or error in processing.")
 
-    else: # Fallback to old print style
-        print("\n============================================================")
-        print(f"Stock Analysis Report for: {stock_display_name_formatted}")
-        print("============================================================")
-        
-        print(f"Date of Latest Data: {date_of_latest_data}")
-        print(f"Latest Closing Price: {latest_closing_price_display}")
 
-        print("------------------------------------------------------------")
-        print("Analysis Parameters:")
-        print("------------------------------------------------------------")
-        print(f"Timeframe Selected: {timeframe_selected_display}")
-        print(f"Strategy Used: {strategy_description}")
-        if technical_outlook_val not in ['CONFIG_ERROR']:
-            print(f"Indicator Config: {indicator_config_display}")
-
-        print("------------------------------------------------------------")
-        print("Analysis Results:")
-        print("------------------------------------------------------------")
-        print(f"Technical Outlook: {technical_outlook_val}")
-        print(f"Actionable Advice: {actionable_advice_val}") 
-        
-        print("\nExplanation:") 
-        print(f"  {explanation_val}") 
-
-        if indicator_values_dict and technical_outlook_val not in ['CONFIG_ERROR', 'DATA_FORMAT_ERROR', 'NO_DATA', 'ERROR']:
-            print("\nIndicator Values:") 
-            for key, value in indicator_values_dict.items():
-                print(f"  - {key}: {value}")
-        elif technical_outlook_val not in ['CONFIG_ERROR', 'DATA_FORMAT_ERROR', 'NO_DATA', 'ERROR', 'INSUFFICIENT_DATA']:
-            print("\nIndicator Values: Not available for this outlook.")
-
-        print("------------------------------------------------------------")
-        print(disclaimer_text)
-        print("============================================================")
+    # Final Disclaimer (preserved as plain text)
+    print("\n------------------------------------------------------------")
+    print(disclaimer_text)
+    print("============================================================")
 
 if __name__ == "__main__":
     main()
