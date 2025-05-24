@@ -71,20 +71,20 @@ class AnalysisEngine:
         
         calculated_indicator_values = {}
         
-        # Calculate MAs
-        ma_windows = config.get('moving_averages', {}).get('windows', [])
-        if not ma_windows: # Ensure there's at least one MA window defined for core logic
+        # Calculate MAs based on Strategy Config (for analysis logic)
+        ma_windows_strategy = config.get('moving_averages', {}).get('windows', [])
+        if not ma_windows_strategy: # Ensure there's at least one MA window defined for core logic
             error_return_template['outlook'] = 'CONFIG_ERROR'
             error_return_template['explanation'] = f"No MA windows defined for {timeframe} in strategy_configs." # Use timeframe
             error_return_template['config_used'] = config
             return error_return_template
             
-        for window in ma_windows:
+        for window in ma_windows_strategy:
             ma_series = calculate_moving_average(close_prices, window)
             latest_ma = ma_series[-1] if ma_series and len(ma_series) == len(close_prices) else None
-            calculated_indicator_values[f'MA_{window}'] = latest_ma
+            calculated_indicator_values[f'MA_{window}'] = latest_ma # Used by analysis logic
         
-        # Calculate RSI
+        # Calculate RSI (for analysis logic)
         rsi_period = config.get('rsi', {}).get('period')
         if rsi_period:
             rsi_series = calculate_rsi(close_prices, rsi_period)
@@ -96,10 +96,22 @@ class AnalysisEngine:
             error_return_template['config_used'] = config
             return error_return_template
 
-        # Check if essential indicators are None (all MAs and RSI)
-        # For this logic, we need at least one MA and the RSI.
+        # Calculate and Store Additional MAs for Display Purposes
+        DISPLAY_MA_WINDOWS = [3, 5, 10, 20, 50, 100, 200]
+        for window in DISPLAY_MA_WINDOWS:
+            # This will calculate MA for display. If window is also in ma_windows_strategy,
+            # it might overwrite the value in calculated_indicator_values. This is acceptable
+            # as the analysis logic below will use the values it fetched based on ma_windows_strategy keys.
+            # However, to be safe and explicit, analysis logic should re-fetch or use specific variables if needed.
+            # Current analysis logic re-fetches using keys from ma_windows_strategy, so it's fine.
+            ma_series_display = calculate_moving_average(close_prices, window)
+            latest_ma_display = ma_series_display[-1] if ma_series_display and len(ma_series_display) == len(close_prices) else None
+            calculated_indicator_values[f'MA_{window}'] = latest_ma_display # Add/overwrite for display
+
+        # Check if essential indicators (from strategy config) are None
         essential_indicators_missing = False
-        if not ma_windows or calculated_indicator_values.get(f'MA_{ma_windows[0]}') is None: # Check first MA as a proxy
+        # Check first MA from strategy as a proxy
+        if not ma_windows_strategy or calculated_indicator_values.get(f'MA_{ma_windows_strategy[0]}') is None: 
             essential_indicators_missing = True
         if rsi_period and calculated_indicator_values.get(f'RSI_{rsi_period}') is None:
             essential_indicators_missing = True
@@ -123,41 +135,44 @@ class AnalysisEngine:
             return round(val, precision) if isinstance(val, (int, float)) else "N/A"
 
         latest_close_fmt = format_val(latest_close_price)
-        rsi_val = calculated_indicator_values.get(f'RSI_{rsi_period}')
-        rsi_fmt = format_val(rsi_val)
+        # RSI value for analysis is taken from calculated_indicator_values using strategy's rsi_period
+        rsi_val_strategy = calculated_indicator_values.get(f'RSI_{rsi_period}')
+        rsi_fmt_strategy = format_val(rsi_val_strategy) # This is strategy RSI
         rsi_buy_threshold = 30 
         rsi_sell_threshold = 70
 
         if timeframe == 'daily':
-            ma_short1 = calculated_indicator_values.get(f'MA_{ma_windows[0]}') 
-            ma_short2 = calculated_indicator_values.get(f'MA_{ma_windows[1]}') 
-            ma_short3 = calculated_indicator_values.get(f'MA_{ma_windows[2]}') 
+            # Crucially, fetch MA values for analysis logic using ma_windows_strategy keys
+            ma_short1_strategy = calculated_indicator_values.get(f'MA_{ma_windows_strategy[0]}') 
+            ma_short2_strategy = calculated_indicator_values.get(f'MA_{ma_windows_strategy[1]}') 
+            ma_short3_strategy = calculated_indicator_values.get(f'MA_{ma_windows_strategy[2]}') 
 
-            ma_short1_fmt = format_val(ma_short1)
-            ma_short2_fmt = format_val(ma_short2)
-            ma_short3_fmt = format_val(ma_short3)
+            ma_short1_fmt = format_val(ma_short1_strategy)
+            ma_short2_fmt = format_val(ma_short2_strategy)
+            ma_short3_fmt = format_val(ma_short3_strategy)
             
-            if all(v is not None for v in [ma_short1, ma_short2, ma_short3, rsi_val]):
-                if latest_close_price > ma_short1 and \
-                   ma_short1 > ma_short2 and ma_short2 > ma_short3 and \
-                   rsi_val < rsi_sell_threshold:
+            # Use strategy-specific MA and RSI values for logic
+            if all(v is not None for v in [ma_short1_strategy, ma_short2_strategy, ma_short3_strategy, rsi_val_strategy]):
+                if latest_close_price > ma_short1_strategy and \
+                   ma_short1_strategy > ma_short2_strategy and ma_short2_strategy > ma_short3_strategy and \
+                   rsi_val_strategy < rsi_sell_threshold:
                     outlook = 'BULLISH'
-                    explanation_details.append(f"Price ({latest_close_fmt}) is above key short-term MAs (MA{ma_windows[0]}={ma_short1_fmt}, MA{ma_windows[1]}={ma_short2_fmt}).")
-                    explanation_details.append(f"Short-term MAs (MA{ma_windows[0]}, MA{ma_windows[1]}, MA{ma_windows[2]}) are aligned bullishly ({ma_short1_fmt} > {ma_short2_fmt} > {ma_short3_fmt}).")
-                    explanation_details.append(f"RSI({rsi_period}) at {rsi_fmt} indicates upward momentum and is not overbought (<{rsi_sell_threshold}).")
-                elif latest_close_price < ma_short1 and \
-                     ma_short1 < ma_short2 and ma_short2 < ma_short3 and \
-                     rsi_val > rsi_buy_threshold:
+                    explanation_details.append(f"Price ({latest_close_fmt}) is above key short-term MAs (MA{ma_windows_strategy[0]}={ma_short1_fmt}, MA{ma_windows_strategy[1]}={ma_short2_fmt}).")
+                    explanation_details.append(f"Short-term MAs (MA{ma_windows_strategy[0]}, MA{ma_windows_strategy[1]}, MA{ma_windows_strategy[2]}) are aligned bullishly ({ma_short1_fmt} > {ma_short2_fmt} > {ma_short3_fmt}).")
+                    explanation_details.append(f"RSI({rsi_period}) at {rsi_fmt_strategy} indicates upward momentum and is not overbought (<{rsi_sell_threshold}).")
+                elif latest_close_price < ma_short1_strategy and \
+                     ma_short1_strategy < ma_short2_strategy and ma_short2_strategy < ma_short3_strategy and \
+                     rsi_val_strategy > rsi_buy_threshold:
                     outlook = 'BEARISH'
-                    explanation_details.append(f"Price ({latest_close_fmt}) is below key short-term MAs (MA{ma_windows[0]}={ma_short1_fmt}, MA{ma_windows[1]}={ma_short2_fmt}).")
-                    explanation_details.append(f"Short-term MAs (MA{ma_windows[0]}, MA{ma_windows[1]}, MA{ma_windows[2]}) are aligned bearishly ({ma_short1_fmt} < {ma_short2_fmt} < {ma_short3_fmt}).")
-                    explanation_details.append(f"RSI({rsi_period}) at {rsi_fmt} indicates downward momentum and is not oversold (>{rsi_buy_threshold}).")
+                    explanation_details.append(f"Price ({latest_close_fmt}) is below key short-term MAs (MA{ma_windows_strategy[0]}={ma_short1_fmt}, MA{ma_windows_strategy[1]}={ma_short2_fmt}).")
+                    explanation_details.append(f"Short-term MAs (MA{ma_windows_strategy[0]}, MA{ma_windows_strategy[1]}, MA{ma_windows_strategy[2]}) are aligned bearishly ({ma_short1_fmt} < {ma_short2_fmt} < {ma_short3_fmt}).")
+                    explanation_details.append(f"RSI({rsi_period}) at {rsi_fmt_strategy} indicates downward momentum and is not oversold (>{rsi_buy_threshold}).")
                 else:
                     outlook = 'NEUTRAL_WAIT'
-                    explanation_details.append(f"Conditions for strong daily outlook not met. Price: {latest_close_fmt}, MAs({ma_windows[0]},{ma_windows[1]},{ma_windows[2]}): {ma_short1_fmt},{ma_short2_fmt},{ma_short3_fmt}, RSI({rsi_period}): {rsi_fmt}.")
+                    explanation_details.append(f"Conditions for strong daily outlook not met. Price: {latest_close_fmt}, MAs({ma_windows_strategy[0]},{ma_windows_strategy[1]},{ma_windows_strategy[2]}): {ma_short1_fmt},{ma_short2_fmt},{ma_short3_fmt}, RSI({rsi_period}): {rsi_fmt_strategy}.")
             else:
                 outlook = 'INSUFFICIENT_DATA' 
-                explanation_details.append(f"One or more critical 'daily' indicators were not available. MA{ma_windows[0]}:{ma_short1_fmt}, MA{ma_windows[1]}:{ma_short2_fmt}, MA{ma_windows[2]}:{ma_short3_fmt}, RSI({rsi_period}):{rsi_fmt}.")
+                explanation_details.append(f"One or more critical 'daily' indicators were not available. MA{ma_windows_strategy[0]}:{ma_short1_fmt}, MA{ma_windows_strategy[1]}:{ma_short2_fmt}, MA{ma_windows_strategy[2]}:{ma_short3_fmt}, RSI({rsi_period}):{rsi_fmt_strategy}.")
         
         elif timeframe == 'weekly':
             outlook = 'NEUTRAL_WAIT'
