@@ -9,12 +9,11 @@ class AnalysisEngine:
         print("AnalysisEngine initialized (for dynamic time horizons).")
 
     def generate_signals(self, stock_data: list, timeframe: str): # Renamed time_horizon to timeframe
-        # Default return structure for errors, including time_horizon_applied
-        time_horizon_capitalized = timeframe.capitalize() if isinstance(timeframe, str) else "Unknown" # Use timeframe
+        time_horizon_capitalized = timeframe.capitalize() if isinstance(timeframe, str) else "Unknown"
         
         error_return_template = {
             'outlook': 'ERROR', 
-            'time_horizon_applied': time_horizon_capitalized, # Use capitalized from start
+            'time_horizon_applied': time_horizon_capitalized,
             'latest_close': None, 
             'indicator_values': {}, 
             'explanation': 'An unspecified error occurred.', 
@@ -27,93 +26,80 @@ class AnalysisEngine:
             return error_return_template
 
         try:
-            # Ensure all items are dicts with 'close' key and 'close' is numeric or None
             valid_prices = []
             for item in stock_data:
                 if not isinstance(item, dict) or 'close' not in item:
-                    error_return_template['outlook'] = 'DATA_FORMAT_ERROR'
-                    error_return_template['explanation'] = "Stock_data items must be dictionaries with a 'close' key."
-                    return error_return_template
+                    error_return_template['outlook'] = 'DATA_FORMAT_ERROR'; error_return_template['explanation'] = "Stock_data items must be dictionaries with a 'close' key."; return error_return_template
                 price = item['close']
                 if not (isinstance(price, (int, float)) or price is None):
-                    error_return_template['outlook'] = 'DATA_FORMAT_ERROR'
-                    error_return_template['explanation'] = "Close prices must be numeric (int/float) or None."
-                    return error_return_template
+                    error_return_template['outlook'] = 'DATA_FORMAT_ERROR'; error_return_template['explanation'] = "Close prices must be numeric (int/float) or None."; return error_return_template
                 valid_prices.append(price)
             
             close_prices = valid_prices
-            if not close_prices or len(close_prices) < 2: # Need at least 2 for diff in RSI and some MAs
-                error_return_template['outlook'] = 'DATA_FORMAT_ERROR'
-                error_return_template['explanation'] = 'Not enough valid close price data (minimum 2 required).'
-                return error_return_template
+            if not close_prices or len(close_prices) < 2:
+                error_return_template['outlook'] = 'DATA_FORMAT_ERROR'; error_return_template['explanation'] = 'Not enough valid close price data (minimum 2 required).'; return error_return_template
             
             latest_close_price = close_prices[-1]
             if latest_close_price is None:
-                error_return_template['outlook'] = 'INSUFFICIENT_DATA'
-                error_return_template['explanation'] = 'Latest closing price is None.'
-                return error_return_template
+                error_return_template['outlook'] = 'INSUFFICIENT_DATA'; error_return_template['explanation'] = 'Latest closing price is None.'; return error_return_template
                 
-        except (TypeError, KeyError) as e: # Should be largely caught by explicit checks above
-            error_return_template['outlook'] = 'DATA_FORMAT_ERROR'
-            error_return_template['explanation'] = f"Error accessing close prices: {e}."
-            return error_return_template
+        except (TypeError, KeyError) as e:
+            error_return_template['outlook'] = 'DATA_FORMAT_ERROR'; error_return_template['explanation'] = f"Error accessing close prices: {e}."; return error_return_template
 
-        if timeframe not in STRATEGY_CONFIGS: # Use timeframe
-            error_return_template['outlook'] = 'CONFIG_ERROR'
-            error_return_template['explanation'] = f"Invalid timeframe '{timeframe}' specified." # Use timeframe
-            return error_return_template
+        if timeframe not in STRATEGY_CONFIGS:
+            error_return_template['outlook'] = 'CONFIG_ERROR'; error_return_template['explanation'] = f"Invalid timeframe '{timeframe}' specified."; return error_return_template
             
-        strategy_config_full = STRATEGY_CONFIGS[timeframe] # Use timeframe
+        strategy_config_full = STRATEGY_CONFIGS[timeframe]
         config = strategy_config_full['indicators']
         config_description = strategy_config_full['description']
-        # Update time_horizon_applied with the more descriptive version from config
         error_return_template['time_horizon_applied'] = config_description 
         
-        calculated_indicator_values = {}
+        calculated_indicator_values = {} # Initialize
         
-        # Calculate MAs based on Strategy Config (for analysis logic)
+        # 1. Calculate MAs based on Strategy Config (for analysis logic)
         ma_windows_strategy = config.get('moving_averages', {}).get('windows', [])
-        if not ma_windows_strategy: # Ensure there's at least one MA window defined for core logic
-            error_return_template['outlook'] = 'CONFIG_ERROR'
-            error_return_template['explanation'] = f"No MA windows defined for {timeframe} in strategy_configs." # Use timeframe
-            error_return_template['config_used'] = config
-            return error_return_template
+        if not ma_windows_strategy:
+            error_return_template['outlook'] = 'CONFIG_ERROR'; error_return_template['explanation'] = f"No MA windows defined for {timeframe} in strategy_configs."; error_return_template['config_used'] = config; return error_return_template
             
         for window in ma_windows_strategy:
             ma_series = calculate_moving_average(close_prices, window)
             latest_ma = ma_series[-1] if ma_series and len(ma_series) == len(close_prices) else None
-            calculated_indicator_values[f'MA_{window}'] = latest_ma # Used by analysis logic
-        
-        # Calculate RSI (for analysis logic)
-        rsi_period = config.get('rsi', {}).get('period')
-        if rsi_period:
-            rsi_series = calculate_rsi(close_prices, rsi_period)
-            latest_rsi = rsi_series[-1] if rsi_series and len(rsi_series) == len(close_prices) else None
-            calculated_indicator_values[f'RSI_{rsi_period}'] = latest_rsi
-        else:
-            error_return_template['outlook'] = 'CONFIG_ERROR'
-            error_return_template['explanation'] = f"RSI period not defined for {timeframe} in strategy_configs." # Use timeframe
-            error_return_template['config_used'] = config
-            return error_return_template
+            calculated_indicator_values[f'MA_{window}'] = latest_ma
 
-        # Calculate and Store Additional MAs for Display Purposes
+        # 2. Calculate Additional MAs for Display Purposes (ensures all display MAs are present)
         DISPLAY_MA_WINDOWS = [3, 5, 10, 20, 50, 100, 200]
         for window in DISPLAY_MA_WINDOWS:
-            # This will calculate MA for display. If window is also in ma_windows_strategy,
-            # it might overwrite the value in calculated_indicator_values. This is acceptable
-            # as the analysis logic below will use the values it fetched based on ma_windows_strategy keys.
-            # However, to be safe and explicit, analysis logic should re-fetch or use specific variables if needed.
-            # Current analysis logic re-fetches using keys from ma_windows_strategy, so it's fine.
-            ma_series_display = calculate_moving_average(close_prices, window)
-            latest_ma_display = ma_series_display[-1] if ma_series_display and len(ma_series_display) == len(close_prices) else None
-            calculated_indicator_values[f'MA_{window}'] = latest_ma_display # Add/overwrite for display
+            if f'MA_{window}' not in calculated_indicator_values: # Only calculate if not already done by strategy
+                ma_series_display = calculate_moving_average(close_prices, window)
+                latest_ma_display = ma_series_display[-1] if ma_series_display and len(ma_series_display) == len(close_prices) else None
+                calculated_indicator_values[f'MA_{window}'] = latest_ma_display
+        
+        # 3. Calculate Strategy RSI (for analysis logic)
+        rsi_period_strategy = config.get('rsi', {}).get('period')
+        rsi_value_for_analysis = None # Initialize
+        if rsi_period_strategy:
+            rsi_series_strategy = calculate_rsi(close_prices, rsi_period_strategy)
+            latest_rsi_strategy = rsi_series_strategy[-1] if rsi_series_strategy and len(rsi_series_strategy) == len(close_prices) else None
+            calculated_indicator_values[f'RSI_{rsi_period_strategy}'] = latest_rsi_strategy
+            rsi_value_for_analysis = latest_rsi_strategy # Store for analysis logic
+        else: # RSI period must be defined in strategy
+            error_return_template['outlook'] = 'CONFIG_ERROR'; error_return_template['explanation'] = f"RSI period not defined for {timeframe} in strategy_configs."; error_return_template['config_used'] = config; return error_return_template
+
+        # 4. Calculate Additional RSIs for Display Purposes
+        DISPLAY_RSI_PERIODS = [6, 12, 24]
+        for period in DISPLAY_RSI_PERIODS:
+            if period == rsi_period_strategy: # Already calculated and stored
+                continue
+            rsi_series_display = calculate_rsi(close_prices, period)
+            latest_rsi_display = rsi_series_display[-1] if rsi_series_display and len(rsi_series_display) == len(close_prices) else None
+            calculated_indicator_values[f'RSI_{period}'] = latest_rsi_display
 
         # Check if essential indicators (from strategy config) are None
         essential_indicators_missing = False
-        # Check first MA from strategy as a proxy
         if not ma_windows_strategy or calculated_indicator_values.get(f'MA_{ma_windows_strategy[0]}') is None: 
             essential_indicators_missing = True
-        if rsi_period and calculated_indicator_values.get(f'RSI_{rsi_period}') is None:
+        # Check rsi_value_for_analysis directly
+        if rsi_period_strategy and rsi_value_for_analysis is None: 
             essential_indicators_missing = True
         
         if essential_indicators_missing:
@@ -121,8 +107,8 @@ class AnalysisEngine:
                 'outlook': 'INSUFFICIENT_DATA',
                 'time_horizon_applied': config_description,
                 'latest_close': latest_close_price,
-                'indicator_values': calculated_indicator_values,
-                'explanation': f"Outlook: INSUFFICIENT_DATA ({config_description}) because one or more key indicators (first MA, RSI) could not be calculated for the latest day. Values: {calculated_indicator_values}",
+                'indicator_values': {k: format_val(v) for k,v in calculated_indicator_values.items()}, # Format all collected values
+                'explanation': f"Outlook: INSUFFICIENT_DATA ({config_description}) because one or more key indicators (first MA, RSI) could not be calculated for the latest day. Strategy MA values: {[calculated_indicator_values.get(f'MA_{w}') for w in ma_windows_strategy]}, Strategy RSI: {rsi_value_for_analysis}",
                 'config_used': config
             }
 
@@ -130,19 +116,16 @@ class AnalysisEngine:
         outlook = 'NEUTRAL_WAIT' 
         explanation_details = []
         
-        # Helper for formatting, use precise values for logic
         def format_val(val, precision=2):
             return round(val, precision) if isinstance(val, (int, float)) else "N/A"
 
         latest_close_fmt = format_val(latest_close_price)
-        # RSI value for analysis is taken from calculated_indicator_values using strategy's rsi_period
-        rsi_val_strategy = calculated_indicator_values.get(f'RSI_{rsi_period}')
-        rsi_fmt_strategy = format_val(rsi_val_strategy) # This is strategy RSI
+        # Use rsi_value_for_analysis for the strategy RSI in logic and explanation
+        rsi_fmt_strategy = format_val(rsi_value_for_analysis) 
         rsi_buy_threshold = 30 
         rsi_sell_threshold = 70
 
         if timeframe == 'daily':
-            # Crucially, fetch MA values for analysis logic using ma_windows_strategy keys
             ma_short1_strategy = calculated_indicator_values.get(f'MA_{ma_windows_strategy[0]}') 
             ma_short2_strategy = calculated_indicator_values.get(f'MA_{ma_windows_strategy[1]}') 
             ma_short3_strategy = calculated_indicator_values.get(f'MA_{ma_windows_strategy[2]}') 
@@ -151,43 +134,38 @@ class AnalysisEngine:
             ma_short2_fmt = format_val(ma_short2_strategy)
             ma_short3_fmt = format_val(ma_short3_strategy)
             
-            # Use strategy-specific MA and RSI values for logic
-            if all(v is not None for v in [ma_short1_strategy, ma_short2_strategy, ma_short3_strategy, rsi_val_strategy]):
+            # Use strategy-specific MA values and rsi_value_for_analysis for logic
+            if all(v is not None for v in [ma_short1_strategy, ma_short2_strategy, ma_short3_strategy, rsi_value_for_analysis]):
                 if latest_close_price > ma_short1_strategy and \
                    ma_short1_strategy > ma_short2_strategy and ma_short2_strategy > ma_short3_strategy and \
-                   rsi_val_strategy < rsi_sell_threshold:
+                   rsi_value_for_analysis < rsi_sell_threshold: # Use rsi_value_for_analysis
                     outlook = 'BULLISH'
                     explanation_details.append(f"Price ({latest_close_fmt}) is above key short-term MAs (MA{ma_windows_strategy[0]}={ma_short1_fmt}, MA{ma_windows_strategy[1]}={ma_short2_fmt}).")
                     explanation_details.append(f"Short-term MAs (MA{ma_windows_strategy[0]}, MA{ma_windows_strategy[1]}, MA{ma_windows_strategy[2]}) are aligned bullishly ({ma_short1_fmt} > {ma_short2_fmt} > {ma_short3_fmt}).")
-                    explanation_details.append(f"RSI({rsi_period}) at {rsi_fmt_strategy} indicates upward momentum and is not overbought (<{rsi_sell_threshold}).")
+                    explanation_details.append(f"Strategy RSI({rsi_period_strategy}) at {rsi_fmt_strategy} indicates upward momentum and is not overbought (<{rsi_sell_threshold}).")
                 elif latest_close_price < ma_short1_strategy and \
                      ma_short1_strategy < ma_short2_strategy and ma_short2_strategy < ma_short3_strategy and \
-                     rsi_val_strategy > rsi_buy_threshold:
+                     rsi_value_for_analysis > rsi_buy_threshold: # Use rsi_value_for_analysis
                     outlook = 'BEARISH'
                     explanation_details.append(f"Price ({latest_close_fmt}) is below key short-term MAs (MA{ma_windows_strategy[0]}={ma_short1_fmt}, MA{ma_windows_strategy[1]}={ma_short2_fmt}).")
                     explanation_details.append(f"Short-term MAs (MA{ma_windows_strategy[0]}, MA{ma_windows_strategy[1]}, MA{ma_windows_strategy[2]}) are aligned bearishly ({ma_short1_fmt} < {ma_short2_fmt} < {ma_short3_fmt}).")
-                    explanation_details.append(f"RSI({rsi_period}) at {rsi_fmt_strategy} indicates downward momentum and is not oversold (>{rsi_buy_threshold}).")
+                    explanation_details.append(f"Strategy RSI({rsi_period_strategy}) at {rsi_fmt_strategy} indicates downward momentum and is not oversold (>{rsi_buy_threshold}).")
                 else:
                     outlook = 'NEUTRAL_WAIT'
-                    explanation_details.append(f"Conditions for strong daily outlook not met. Price: {latest_close_fmt}, MAs({ma_windows_strategy[0]},{ma_windows_strategy[1]},{ma_windows_strategy[2]}): {ma_short1_fmt},{ma_short2_fmt},{ma_short3_fmt}, RSI({rsi_period}): {rsi_fmt_strategy}.")
+                    explanation_details.append(f"Conditions for strong daily outlook not met. Price: {latest_close_fmt}, MAs({ma_windows_strategy[0]},{ma_windows_strategy[1]},{ma_windows_strategy[2]}): {ma_short1_fmt},{ma_short2_fmt},{ma_short3_fmt}, Strategy RSI({rsi_period_strategy}): {rsi_fmt_strategy}.")
             else:
                 outlook = 'INSUFFICIENT_DATA' 
-                explanation_details.append(f"One or more critical 'daily' indicators were not available. MA{ma_windows_strategy[0]}:{ma_short1_fmt}, MA{ma_windows_strategy[1]}:{ma_short2_fmt}, MA{ma_windows_strategy[2]}:{ma_short3_fmt}, RSI({rsi_period}):{rsi_fmt_strategy}.")
+                explanation_details.append(f"One or more critical 'daily' indicators were not available. MA{ma_windows_strategy[0]}:{ma_short1_fmt}, MA{ma_windows_strategy[1]}:{ma_short2_fmt}, MA{ma_windows_strategy[2]}:{ma_short3_fmt}, Strategy RSI({rsi_period_strategy}):{rsi_fmt_strategy}.")
         
         elif timeframe == 'weekly':
-            outlook = 'NEUTRAL_WAIT'
-            explanation_details.append(f"Specific logic for '{timeframe}' timeframe is pending. Defaulting to NEUTRAL_WAIT.")
+            outlook = 'NEUTRAL_WAIT'; explanation_details.append(f"Specific logic for '{timeframe}' timeframe is pending. Defaulting to NEUTRAL_WAIT.")
         elif timeframe == 'monthly':
-            outlook = 'NEUTRAL_WAIT'
-            explanation_details.append(f"Specific logic for '{timeframe}' timeframe is pending. Defaulting to NEUTRAL_WAIT.")
-        
+            outlook = 'NEUTRAL_WAIT'; explanation_details.append(f"Specific logic for '{timeframe}' timeframe is pending. Defaulting to NEUTRAL_WAIT.")
         else: 
-             outlook = 'CONFIG_ERROR' 
-             explanation_details.append(f"Timeframe '{timeframe}' logic not implemented or timeframe unrecognized after initial validation. Defaulting outlook.")
+             outlook = 'CONFIG_ERROR'; explanation_details.append(f"Timeframe '{timeframe}' logic not implemented or timeframe unrecognized. Defaulting outlook.")
 
         final_explanation = f"Outlook: {outlook} ({config_description}). Reasons: {' '.join(explanation_details)}"
-        if not explanation_details: 
-            final_explanation = f"Outlook: {outlook} ({config_description}). No specific conditions logged for this outlook."
+        if not explanation_details: final_explanation = f"Outlook: {outlook} ({config_description}). No specific conditions logged."
 
         return {
             'outlook': outlook,
@@ -202,131 +180,41 @@ if __name__ == '__main__':
     engine = AnalysisEngine()
     
     def generate_mock_data(num_points, start_price=50.0, trend='neutral', volatility=0.5):
-        data = []
-        price = start_price
-        import random
+        data = []; price = start_price; import random
         for i in range(num_points):
-            if trend == 'bullish':
-                price_change = random.uniform(0, volatility) + 0.05 # Skew positive
-            elif trend == 'bearish':
-                price_change = random.uniform(-volatility, 0) - 0.05 # Skew negative
-            else: # neutral / mixed
-                price_change = random.uniform(-volatility/2, volatility/2)
-            price += price_change
-            price = max(price, 1.0) 
+            if trend == 'bullish': price_change = random.uniform(0, volatility) + 0.05
+            elif trend == 'bearish': price_change = random.uniform(-volatility, 0) - 0.05
+            else: price_change = random.uniform(-volatility/2, volatility/2)
+            price += price_change; price = max(price, 1.0) 
             data.append({'date': f'2023-01-{i+1:02d}', 'close': round(price,2)})
         return data
-
+    
     print("\n--- Testing AnalysisEngine with Dynamic Time Horizons ---")
-    
-    # Test Data
-    # Daily strategy: MAs [3,5,10], RSI 14. Needs min 15 data points.
-    # Weekly strategy: MAs [10,20], RSI 14. Needs min 21 data points.
-    # Monthly strategy: MAs [20,60], RSI 14. Needs min 61 data points.
-    
-    test_data_bullish_long = generate_mock_data(65, trend='bullish', start_price=100)
-    test_data_bearish_long = generate_mock_data(65, trend='bearish', start_price=150)
-    test_data_neutral_long = generate_mock_data(65, trend='neutral', start_price=120)
-    
-    # Specific data for daily tests to try and trigger conditions
-    # Bullish: Price > MA3, MA3 > MA5, MA5 > MA10, RSI < 70
-    data_daily_bullish_custom = [
-        # Creates an upward trend with MAs aligning
-        {'close': 100}, {'close': 101}, {'close': 102}, {'close': 103}, {'close': 104}, 
-        {'close': 105}, {'close': 106}, {'close': 107}, {'close': 108}, {'close': 109},
-        {'close': 110}, {'close': 111}, {'close': 112}, {'close': 113}, {'close': 114}, # 15 points
-        {'close': 115}, {'close': 116} 
-    ] * 2 # Make it longer to stabilize RSI if needed, total 34 points to be safe for RSI 14
-
-    # Bearish: Price < MA3, MA3 < MA5, MA5 < MA10, RSI > 30
-    data_daily_bearish_custom = [
-        {'close': 116}, {'close': 115}, {'close': 114}, {'close': 113}, {'close': 112},
-        {'close': 111}, {'close': 110}, {'close': 109}, {'close': 108}, {'close': 107},
-        {'close': 106}, {'close': 105}, {'close': 104}, {'close': 103}, {'close': 102}, # 15 points
-        {'close': 101}, {'close': 100}
-    ] * 2 # 34 points
-
-    # Neutral: Price action that doesn't meet strong bullish/bearish criteria
-    data_daily_neutral_custom = [
-        {'close': 100}, {'close': 101}, {'close': 100}, {'close': 101}, {'close': 102}, 
-        {'close': 101}, {'close': 102}, {'close': 101}, {'close': 100}, {'close': 101},
-        {'close': 100}, {'close': 99},  {'close': 100}, {'close': 101}, {'close': 100}, # 15 points
-        {'close': 100}, {'close': 100}
-    ] * 2 # 34 points
-
-    data_daily_insufficient = [{'close': i+100} for i in range(5)] # Only 5 data points
-
+    data_daily_bullish_custom = [{'close': 100+i*0.5 + (random.random()-0.5)*0.1} for i in range(34)] 
+    data_daily_bearish_custom = [{'close': 116-i*0.5 + (random.random()-0.5)*0.1} for i in range(34)]
+    data_daily_neutral_custom = ([{'close': 100}, {'close': 101}] * 9 + [{'close':100}])[:34]
+    data_daily_insufficient = [{'close': i+100} for i in range(5)]
 
     print("\n--- Testing 'daily' Timeframe ---")
-    print("\n** Daily Bullish Test (Custom Data) **")
-    result_db = engine.generate_signals(data_daily_bullish_custom, 'daily')
-    print(f"Outlook: {result_db.get('outlook')}")
-    print(f"Explanation: {result_db.get('explanation')}")
-    print(f"Indicator Values: {result_db.get('indicator_values')}")
+    for test_name, test_data in [
+        ("Daily Bullish", data_daily_bullish_custom),
+        ("Daily Bearish", data_daily_bearish_custom),
+        ("Daily Neutral", data_daily_neutral_custom),
+        ("Daily Insufficient", data_daily_insufficient)
+    ]:
+        print(f"\n** {test_name} Test (Custom Data) **")
+        result = engine.generate_signals(test_data, 'daily')
+        print(f"Outlook: {result.get('outlook')}")
+        print(f"Explanation: {result.get('explanation')}")
+        print(f"Indicator Values: {result.get('indicator_values')}")
 
-    print("\n** Daily Bearish Test (Custom Data) **")
-    result_dbr = engine.generate_signals(data_daily_bearish_custom, 'daily')
-    print(f"Outlook: {result_dbr.get('outlook')}")
-    print(f"Explanation: {result_dbr.get('explanation')}")
-    print(f"Indicator Values: {result_dbr.get('indicator_values')}")
-
-    print("\n** Daily Neutral Test (Custom Data) **")
-    result_dn = engine.generate_signals(data_daily_neutral_custom, 'daily')
-    print(f"Outlook: {result_dn.get('outlook')}")
-    print(f"Explanation: {result_dn.get('explanation')}")
-    print(f"Indicator Values: {result_dn.get('indicator_values')}")
-    
-    print("\n** Daily Insufficient Data Test **")
-    result_di = engine.generate_signals(data_daily_insufficient, 'daily')
-    print(f"Outlook: {result_di.get('outlook')}")
-    print(f"Explanation: {result_di.get('explanation')}")
-    # Indicator values might be partially filled or all None, good to see
-    print(f"Indicator Values: {result_di.get('indicator_values')}")
-
-
-    # Keep existing general tests for other timeframes and edge cases
-    # The horizons_to_test should be updated to the new keys
-    # The old 'short_term', 'medium_term', 'long_term' keys are no longer in STRATEGY_CONFIGS
-    # So the old loop `for th in horizons_to_test:` will fail or test nothing relevant.
-    # I will comment out that old loop for now.
-    # New tests for 'weekly' and 'monthly' would be added similarly to 'daily'.
-
-    # horizons_to_test_old_keys = ['short_term', 'medium_term', 'long_term'] # These are now invalid
-    # datasets_to_test = {
-    #     "Bullish Data (Long)": test_data_bullish_long,
-    #     "Bearish Data (Long)": test_data_bearish_long,
-    #     "Neutral Data (Long)": test_data_neutral_long
-    # }
-    # for name, data in datasets_to_test.items():
-    #     print(f"\n--- Dataset: {name} (Length: {len(data)}) ---")
-    #     for th_old in horizons_to_test_old_keys: # This loop will cause errors due to invalid keys
-    #         print(f"\n-- (Old Key Test) Time Horizon: {th_old} --")
-    #         # This call will now fail with CONFIG_ERROR due to invalid timeframe key
-    #         result = engine.generate_signals(data, th_old) 
-    #         print(f"Outlook: {result['outlook']}")
-    #         print(f"Explanation: {result['explanation']}")
-    #         print("-" * 30)
-
-
-    print("\n--- Testing Other Edge Cases (using 'daily' or 'weekly' as example valid timeframes) ---")
-    
-    # Test with data long enough for 'daily' but maybe not for 'weekly'/'monthly' if those were tested here.
-    test_data_generic = generate_mock_data(30, trend='neutral') # 30 points
-
-    print("\n-- Invalid Timeframe (was Invalid Time Horizon) --")
+    print("\n--- Testing Other Edge Cases (using 'daily' as example) ---")
+    test_data_generic = generate_mock_data(30, trend='neutral')
     result_invalid_tf = engine.generate_signals(test_data_generic, 'invalid_timeframe')
-    print(f"Outlook: {result_invalid_tf['outlook']}")
-    print(f"Explanation: {result_invalid_tf['explanation']}")
-
-    print("\n-- Empty Data --")
-    result_empty = engine.generate_signals([], 'daily') # Use a valid timeframe key
-    print(f"Outlook: {result_empty['outlook']}")
-    print(f"Explanation: {result_empty['explanation']}")
-    
-    print("\n-- Data Format Error (bad item) --")
-    bad_data = [{'price': 10}] * 30 # 'close' key missing
-    result_bad_fmt = engine.generate_signals(bad_data, 'daily') # Use a valid timeframe key
-    print(f"Outlook: {result_bad_fmt['outlook']}")
-    print(f"Explanation: {result_bad_fmt['explanation']}")
-
+    print(f"\n-- Invalid Timeframe --\nOutlook: {result_invalid_tf['outlook']}\nExplanation: {result_invalid_tf['explanation']}")
+    result_empty = engine.generate_signals([], 'daily')
+    print(f"\n-- Empty Data --\nOutlook: {result_empty['outlook']}\nExplanation: {result_empty['explanation']}")
+    bad_data = [{'price': 10}] * 30
+    result_bad_fmt = engine.generate_signals(bad_data, 'daily')
+    print(f"\n-- Data Format Error --\nOutlook: {result_bad_fmt['outlook']}\nExplanation: {result_bad_fmt['explanation']}")
     print("\n--- End of AnalysisEngine Dynamic Tests ---")
