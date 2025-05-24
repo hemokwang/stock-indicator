@@ -20,11 +20,11 @@ def fetch_stock_data(stock_code: str, data_type: str = 'daily', start_date: str 
             {'date': '2023-01-01', 'open': 10.0, 'high': 10.5, 'low': 9.8, 'close': 10.2, 'volume': 10000},
         ]
 
-    # Set default date range to last 1 year if not specified
+    # Set default date range to last approx 2 years if not specified
     if end_date is None:
         end_date = datetime.now().strftime('%Y%m%d')
     if start_date is None:
-        start_date = (datetime.now() - timedelta(days=365)).strftime('%Y%m%d')
+        start_date = (datetime.now() - timedelta(days=730)).strftime('%Y%m%d') # Changed from 365 to 730
     
     try:
         # akshare.stock_zh_a_hist requires start_date and end_date in 'YYYYMMDD' format.
