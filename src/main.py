@@ -11,32 +11,12 @@ except ImportError:
     from analysis_engine import AnalysisEngine
     from strategy_configs import STRATEGY_CONFIGS
 
-# --- Column Width Constants ---
-COL1_WIDTH = 20
-COL2_WIDTH = 60
+# --- Approximate wrap width for long text ---
+APPROX_WRAP_WIDTH = 60
+# COL1_WIDTH and COL2_WIDTH removed as manual padding is no longer used.
 
-# --- Helper function for formatting cell content ---
-def format_cell_content(content, target_width, is_first_col=True):
-    content_str = str(content)
-    if is_first_col:
-        # For the first column, simply pad the content.
-        return f"{content_str:<{target_width}}"
-    else:
-        # For the second column, strip leading/trailing whitespace from the input string
-        # before wrapping and padding. This ensures true left-alignment.
-        content_to_wrap = content_str.strip()
-
-        lines = textwrap.wrap(content_to_wrap, width=target_width, 
-                              replace_whitespace=False, 
-                              drop_whitespace=False,
-                              fix_sentence_endings=True)
-        if not lines:
-            return f"{'':<{target_width}}" # Handle empty string case
-        
-        # Each line from textwrap.wrap on a stripped string should be clean.
-        # The f-string padding ensures left alignment.
-        padded_lines = [f"{line:<{target_width}}" for line in lines]
-        return "\n".join(padded_lines)
+# format_cell_content helper function removed as its padding logic is no longer needed.
+# Cell preparation will be done inline or with more specific helpers if necessary.
 
 def main():
     parser = argparse.ArgumentParser(description="Stock Analysis CLI Tool")
@@ -48,9 +28,9 @@ def main():
     args = parser.parse_args()
 
     stock_info = fetch_stock_basic_info(args.stock_code)
-    raw_stock_display_name = args.stock_code 
+    raw_stock_display_name = str(args.stock_code).strip()
     if stock_info and stock_info.get('name'):
-        raw_stock_display_name = f"{stock_info['name']} ({args.stock_code})"
+        raw_stock_display_name = f"{str(stock_info['name']).strip()} ({str(args.stock_code).strip()})"
     
     # Initial prints (preserved)
     print(f"--- Initializing Stock Analysis for: {raw_stock_display_name} ---")
@@ -75,15 +55,20 @@ def main():
     engine = AnalysisEngine()
     analysis_result = engine.generate_signals(stock_data, args.timeframe) 
 
-    # --- Prepare RAW data (before padding/formatting for cells) ---
-    date_of_latest_data_raw = stock_data[-1].get('date', 'N/A') if stock_data else 'N/A'
+    # --- Prepare RAW data (values will be stripped and some wrapped) ---
+    date_of_latest_data_raw = str(stock_data[-1].get('date', 'N/A')).strip() if stock_data else "N/A"
+    
     latest_closing_price_val = analysis_result.get('latest_close')
     latest_closing_price_raw_display = f"{latest_closing_price_val:.2f}" if latest_closing_price_val is not None else "N/A"
     if latest_closing_price_val is None and analysis_result.get('outlook') in ['DATA_FORMAT_ERROR', 'NO_DATA']:
         latest_closing_price_raw_display = "N/A (Data Error)"
+    latest_closing_price_raw_display = latest_closing_price_raw_display.strip()
 
-    timeframe_selected_raw_display = args.timeframe.capitalize() 
-    strategy_description_raw = analysis_result.get('time_horizon_applied', args.timeframe.capitalize()) 
+    timeframe_selected_raw_display = str(args.timeframe.capitalize()).strip()
+    
+    strategy_description_raw = str(analysis_result.get('time_horizon_applied', args.timeframe.capitalize())).strip()
+    # Wrap strategy_description as it can be long
+    strategy_description_wrapped = "\n".join(textwrap.wrap(strategy_description_raw, width=APPROX_WRAP_WIDTH, fix_sentence_endings=True))
     
     config_used = analysis_result.get('config_used', {})
     ma_windows_used_list = config_used.get('moving_averages', {}).get('windows', [])
@@ -98,85 +83,88 @@ def main():
     indicator_config_raw_str = ", ".join(indicator_config_display_parts) if indicator_config_display_parts else "N/A"
     if analysis_result.get('outlook') == 'CONFIG_ERROR':
         indicator_config_raw_str = "N/A (Configuration Error)"
+    indicator_config_raw_str = indicator_config_raw_str.strip()
+    # Wrap indicator_config as it can be long
+    indicator_config_wrapped = "\n".join(textwrap.wrap(indicator_config_raw_str, width=APPROX_WRAP_WIDTH, fix_sentence_endings=True))
 
-    technical_outlook_raw_val = analysis_result.get('outlook', 'N/A')
-    explanation_raw_val = analysis_result.get('explanation', 'No explanation provided.')
+
+    technical_outlook_raw_val = str(analysis_result.get('outlook', 'N/A')).strip()
+    
+    explanation_raw_val = str(analysis_result.get('explanation', 'No explanation provided.')).strip()
+    # Wrap explanation as it's the primary long-text field
+    explanation_wrapped = "\n".join(textwrap.wrap(explanation_raw_val, width=APPROX_WRAP_WIDTH, fix_sentence_endings=True))
+    
     indicator_values_dict_raw = analysis_result.get('indicator_values', {})
 
     actionable_advice_raw_val = "N/A" 
-    if technical_outlook_raw_val == 'BULLISH': actionable_advice_raw_val = "Consider Buying / Positive Outlook"
-    elif technical_outlook_raw_val == 'BEARISH': actionable_advice_raw_val = "Consider Selling / Negative Outlook"
-    elif technical_outlook_raw_val == 'NEUTRAL_WAIT': actionable_advice_raw_val = "Hold / Wait for Clearer Signals"
-    elif technical_outlook_raw_val == 'MIXED_SIGNALS': actionable_advice_raw_val = "Mixed Signals / Caution Advised"
-    elif technical_outlook_raw_val == 'INSUFFICIENT_DATA': actionable_advice_raw_val = "Unable to provide specific advice due to insufficient data."
-    elif technical_outlook_raw_val in ['CONFIG_ERROR', 'DATA_FORMAT_ERROR', 'INDICATOR_ERROR', 'ERROR', 'NO_DATA']:
-        actionable_advice_raw_val = f"Specific advice cannot be determined due to: {technical_outlook_raw_val}"
-    else: actionable_advice_raw_val = f"Analysis resulted in '{technical_outlook_raw_val}'."
+    # This logic determines the raw string for actionable advice
+    _outlook_for_advice = str(analysis_result.get('outlook', 'N/A')).strip() # Use stripped outlook for logic
+    if _outlook_for_advice == 'BULLISH': actionable_advice_raw_val = "Consider Buying / Positive Outlook"
+    elif _outlook_for_advice == 'BEARISH': actionable_advice_raw_val = "Consider Selling / Negative Outlook"
+    elif _outlook_for_advice == 'NEUTRAL_WAIT': actionable_advice_raw_val = "Hold / Wait for Clearer Signals"
+    elif _outlook_for_advice == 'MIXED_SIGNALS': actionable_advice_raw_val = "Mixed Signals / Caution Advised"
+    elif _outlook_for_advice == 'INSUFFICIENT_DATA': actionable_advice_raw_val = "Unable to provide specific advice due to insufficient data."
+    elif _outlook_for_advice in ['CONFIG_ERROR', 'DATA_FORMAT_ERROR', 'INDICATOR_ERROR', 'ERROR', 'NO_DATA']:
+        actionable_advice_raw_val = f"Specific advice cannot be determined due to: {_outlook_for_advice}"
+    else: actionable_advice_raw_val = f"Analysis resulted in '{_outlook_for_advice}'."
+    actionable_advice_raw_val = actionable_advice_raw_val.strip()
+    # Wrap actionable_advice as it can sometimes be long
+    actionable_advice_wrapped = "\n".join(textwrap.wrap(actionable_advice_raw_val, width=APPROX_WRAP_WIDTH, fix_sentence_endings=True))
 
-    # --- Prepare Padded Headers ---
-    headers1 = [f"{'Feature':<{COL1_WIDTH}}", f"{'Value':<{COL2_WIDTH}}"]
-    headers2 = [f"{'Category':<{COL1_WIDTH}}", f"{'Details':<{COL2_WIDTH}}"]
-    headers3 = [f"{'Indicator':<{COL1_WIDTH}}", f"{'Value':<{COL2_WIDTH}}"]
+
+    # --- Prepare Headers (Raw Strings) ---
+    headers1 = ["Feature", "Value"]
+    headers2 = ["Category", "Details"]
+    headers3 = ["Indicator", "Value"]
 
     # --- Start of Tabulated Output ---
     print(f"\n--- Stock Analysis Report for: {raw_stock_display_name} ---") 
 
     # --- Table 1: General Information & Parameters ---
     print("\n--- General Information & Parameters ---")
-    general_info_data_unformatted = [
-        ["Stock", raw_stock_display_name],
-        ["Date of Latest Data", date_of_latest_data_raw],
-        ["Latest Closing Price", latest_closing_price_raw_display],
-        ["Timeframe Selected", timeframe_selected_raw_display],
-        ["Strategy Used", strategy_description_raw],
+    general_info_data = [
+        [str("Stock").strip(), raw_stock_display_name], # stock_display_name is already stripped
+        [str("Date of Latest Data").strip(), date_of_latest_data_raw],
+        [str("Latest Closing Price").strip(), latest_closing_price_raw_display],
+        [str("Timeframe Selected").strip(), timeframe_selected_raw_display],
+        [str("Strategy Used").strip(), strategy_description_wrapped], # Wrapped
     ]
-    if technical_outlook_raw_val not in ['CONFIG_ERROR']:
-        general_info_data_unformatted.append(["Indicator Config", indicator_config_raw_str])
+    # Use stripped outlook for logic
+    if str(analysis_result.get('outlook', 'N/A')).strip() != 'CONFIG_ERROR':
+        general_info_data.append([str("Indicator Config").strip(), indicator_config_wrapped]) # Wrapped
     else:
-        general_info_data_unformatted.append(["Indicator Config", "N/A (Configuration Error)"])
-    
-    general_info_data_padded = []
-    for label, value in general_info_data_unformatted:
-        general_info_data_padded.append([
-            format_cell_content(label, COL1_WIDTH, is_first_col=True),
-            format_cell_content(value, COL2_WIDTH, is_first_col=False)
-        ])
-    print(tabulate(general_info_data_padded, headers=headers1, tablefmt="fancy_grid"))
+        # Wrap even this short string for consistency if it were longer
+        n_a_config_wrapped = "\n".join(textwrap.wrap("N/A (Configuration Error)".strip(), width=APPROX_WRAP_WIDTH, fix_sentence_endings=True))
+        general_info_data.append([str("Indicator Config").strip(), n_a_config_wrapped])
+        
+    print(tabulate(general_info_data, headers=headers1, tablefmt="fancy_grid", colalign=("left", "left")))
 
     # --- Table 2: Analysis Results ---
     print("\n--- Analysis Results ---")
-    analysis_results_data_unformatted = [
-        ["Technical Outlook", technical_outlook_raw_val],
-        ["Actionable Advice", actionable_advice_raw_val],
-        ["Explanation", explanation_raw_val]
+    analysis_results_data = [
+        [str("Technical Outlook").strip(), technical_outlook_raw_val], # This is typically short
+        [str("Actionable Advice").strip(), actionable_advice_wrapped], # Wrapped
+        [str("Explanation").strip(), explanation_wrapped] # Wrapped
     ]
-    analysis_results_data_padded = []
-    for label, value in analysis_results_data_unformatted:
-        analysis_results_data_padded.append([
-            format_cell_content(label, COL1_WIDTH, is_first_col=True),
-            format_cell_content(value, COL2_WIDTH, is_first_col=False)
-        ])
-    print(tabulate(analysis_results_data_padded, headers=headers2, tablefmt="fancy_grid"))
+    print(tabulate(analysis_results_data, headers=headers2, tablefmt="fancy_grid", colalign=("left", "left")))
 
     # --- Table 3: Indicator Values (Conditional) ---
     print("\n--- Indicator Values ---")
-    indicator_data_for_table_padded = []
-    if indicator_values_dict_raw and technical_outlook_raw_val not in ['CONFIG_ERROR', 'DATA_FORMAT_ERROR', 'NO_DATA', 'ERROR']:
+    indicator_data_for_table = []
+    # Use stripped outlook for logic
+    if indicator_values_dict_raw and str(analysis_result.get('outlook', 'N/A')).strip() not in ['CONFIG_ERROR', 'DATA_FORMAT_ERROR', 'NO_DATA', 'ERROR']:
         for key, value in indicator_values_dict_raw.items():
-            # Format numeric values nicely before padding
+            key_str = str(key).strip()
             if isinstance(value, float): value_str = f"{value:.2f}"
             elif isinstance(value, list): value_str = ", ".join(map(str, value))
             else: value_str = str(value)
-            
-            indicator_data_for_table_padded.append([
-                format_cell_content(key, COL1_WIDTH, is_first_col=True),
-                format_cell_content(value_str, COL2_WIDTH, is_first_col=False) # Apply to all values
-            ])
+            value_str = value_str.strip() # Values are typically short, not wrapped
+            indicator_data_for_table.append([key_str, value_str])
     
-    if indicator_data_for_table_padded:
-        print(tabulate(indicator_data_for_table_padded, headers=headers3, tablefmt="fancy_grid", colalign=("left", "left")))
-    elif technical_outlook_raw_val not in ['CONFIG_ERROR', 'DATA_FORMAT_ERROR', 'NO_DATA', 'ERROR', 'INSUFFICIENT_DATA']:
-        # This message does not need to conform to table padding
+    if indicator_data_for_table:
+        print(tabulate(indicator_data_for_table, headers=headers3, tablefmt="fancy_grid", colalign=("left", "left")))
+    # Use stripped outlook for logic
+    elif str(analysis_result.get('outlook', 'N/A')).strip() not in ['CONFIG_ERROR', 'DATA_FORMAT_ERROR', 'NO_DATA', 'ERROR', 'INSUFFICIENT_DATA']:
         print("Indicator Values: Not available for this outlook.")
     else: 
         print("Indicator Values: Not applicable or error in processing.")
