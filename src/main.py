@@ -168,7 +168,7 @@ def main():
             ])
     
     if indicator_data_for_table_padded:
-        print(tabulate(indicator_data_for_table_padded, headers=headers3, tablefmt="fancy_grid"))
+        print(tabulate(indicator_data_for_table_padded, headers=headers3, tablefmt="fancy_grid", colalign=("left", "left")))
     elif technical_outlook_raw_val not in ['CONFIG_ERROR', 'DATA_FORMAT_ERROR', 'NO_DATA', 'ERROR', 'INSUFFICIENT_DATA']:
         # This message does not need to conform to table padding
         print("Indicator Values: Not available for this outlook.")
