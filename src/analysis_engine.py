@@ -56,24 +56,22 @@ class AnalysisEngine:
         
         calculated_indicator_values = {} # Initialize
         
-        # 1. Calculate MAs based on Strategy Config (for analysis logic)
+        # --- Moving Average Calculations ---
+        # 1. Define MA windows from strategy for analysis logic
         ma_windows_strategy = config.get('moving_averages', {}).get('windows', [])
-        if not ma_windows_strategy:
+        if not ma_windows_strategy: # Strategy must define MAs it intends to use
             error_return_template['outlook'] = 'CONFIG_ERROR'; error_return_template['explanation'] = f"No MA windows defined for {timeframe} in strategy_configs."; error_return_template['config_used'] = config; return error_return_template
-            
-        for window in ma_windows_strategy:
-            ma_series = calculate_moving_average(close_prices, window)
-            latest_ma = ma_series[-1] if ma_series and len(ma_series) == len(close_prices) else None
-            calculated_indicator_values[f'MA_{window}'] = latest_ma
 
-        # 2. Calculate Additional MAs for Display Purposes (ensures all display MAs are present)
+        # 2. Calculate all Display MAs and store them.
+        # This ensures all MAs (3,5,10,20,50,100,200) are available for display.
+        # The analysis logic will then pick the ones it needs based on ma_windows_strategy.
         DISPLAY_MA_WINDOWS = [3, 5, 10, 20, 50, 100, 200]
         for window in DISPLAY_MA_WINDOWS:
-            if f'MA_{window}' not in calculated_indicator_values: # Only calculate if not already done by strategy
-                ma_series_display = calculate_moving_average(close_prices, window)
-                latest_ma_display = ma_series_display[-1] if ma_series_display and len(ma_series_display) == len(close_prices) else None
-                calculated_indicator_values[f'MA_{window}'] = latest_ma_display
+            ma_series_display = calculate_moving_average(close_prices, window)
+            latest_ma_display = ma_series_display[-1] if ma_series_display and len(ma_series_display) == len(close_prices) else None
+            calculated_indicator_values[f'MA_{window}'] = latest_ma_display
         
+        # --- RSI Calculations ---
         # 3. Calculate Strategy RSI (for analysis logic)
         rsi_period_strategy = config.get('rsi', {}).get('period')
         rsi_value_for_analysis = None # Initialize
@@ -81,34 +79,46 @@ class AnalysisEngine:
             rsi_series_strategy = calculate_rsi(close_prices, rsi_period_strategy)
             latest_rsi_strategy = rsi_series_strategy[-1] if rsi_series_strategy and len(rsi_series_strategy) == len(close_prices) else None
             calculated_indicator_values[f'RSI_{rsi_period_strategy}'] = latest_rsi_strategy
-            rsi_value_for_analysis = latest_rsi_strategy # Store for analysis logic
+            rsi_value_for_analysis = latest_rsi_strategy 
         else: # RSI period must be defined in strategy
             error_return_template['outlook'] = 'CONFIG_ERROR'; error_return_template['explanation'] = f"RSI period not defined for {timeframe} in strategy_configs."; error_return_template['config_used'] = config; return error_return_template
 
         # 4. Calculate Additional RSIs for Display Purposes
         DISPLAY_RSI_PERIODS = [6, 12, 24]
         for period in DISPLAY_RSI_PERIODS:
-            if period == rsi_period_strategy: # Already calculated and stored
+            if period == rsi_period_strategy: 
                 continue
             rsi_series_display = calculate_rsi(close_prices, period)
             latest_rsi_display = rsi_series_display[-1] if rsi_series_display and len(rsi_series_display) == len(close_prices) else None
             calculated_indicator_values[f'RSI_{period}'] = latest_rsi_display
 
         # Check if essential indicators (from strategy config) are None
+        # The MAs required by the strategy must be present in calculated_indicator_values
+        # (which they will be, as DISPLAY_MA_WINDOWS includes common strategy values like 10, 20, 50)
         essential_indicators_missing = False
-        if not ma_windows_strategy or calculated_indicator_values.get(f'MA_{ma_windows_strategy[0]}') is None: 
-            essential_indicators_missing = True
-        # Check rsi_value_for_analysis directly
-        if rsi_period_strategy and rsi_value_for_analysis is None: 
+        for strat_ma_window in ma_windows_strategy:
+            if calculated_indicator_values.get(f'MA_{strat_ma_window}') is None:
+                essential_indicators_missing = True
+                break
+        if rsi_value_for_analysis is None: # Check the variable holding the strategy RSI value
             essential_indicators_missing = True
         
         if essential_indicators_missing:
+            # Construct a more informative message about which specific strategy indicators were missing
+            missing_details_ma = [f"MA_{w}: {calculated_indicator_values.get(f'MA_{w}')}" for w in ma_windows_strategy]
+            missing_details_rsi = f"RSI_{rsi_period_strategy}: {rsi_value_for_analysis}"
+            explanation_msg = (
+                f"Outlook: INSUFFICIENT_DATA ({config_description}) because one or more key strategy indicators "
+                f"could not be calculated for the latest day. "
+                f"Required MA values: ({', '.join(missing_details_ma)}). "
+                f"Required RSI value: {missing_details_rsi}."
+            )
             return {
                 'outlook': 'INSUFFICIENT_DATA',
                 'time_horizon_applied': config_description,
                 'latest_close': latest_close_price,
-                'indicator_values': {k: format_val(v) for k,v in calculated_indicator_values.items()}, # Format all collected values
-                'explanation': f"Outlook: INSUFFICIENT_DATA ({config_description}) because one or more key indicators (first MA, RSI) could not be calculated for the latest day. Strategy MA values: {[calculated_indicator_values.get(f'MA_{w}') for w in ma_windows_strategy]}, Strategy RSI: {rsi_value_for_analysis}",
+                'indicator_values': {k: format_val(v) for k,v in calculated_indicator_values.items()},
+                'explanation': explanation_msg,
                 'config_used': config
             }
 
@@ -120,12 +130,13 @@ class AnalysisEngine:
             return round(val, precision) if isinstance(val, (int, float)) else "N/A"
 
         latest_close_fmt = format_val(latest_close_price)
-        # Use rsi_value_for_analysis for the strategy RSI in logic and explanation
         rsi_fmt_strategy = format_val(rsi_value_for_analysis) 
         rsi_buy_threshold = 30 
         rsi_sell_threshold = 70
 
         if timeframe == 'daily':
+            # Fetch MA values for analysis logic using keys from ma_windows_strategy
+            # These MAs are expected to be in calculated_indicator_values from the DISPLAY_MA_WINDOWS loop
             ma_short1_strategy = calculated_indicator_values.get(f'MA_{ma_windows_strategy[0]}') 
             ma_short2_strategy = calculated_indicator_values.get(f'MA_{ma_windows_strategy[1]}') 
             ma_short3_strategy = calculated_indicator_values.get(f'MA_{ma_windows_strategy[2]}') 
@@ -134,18 +145,17 @@ class AnalysisEngine:
             ma_short2_fmt = format_val(ma_short2_strategy)
             ma_short3_fmt = format_val(ma_short3_strategy)
             
-            # Use strategy-specific MA values and rsi_value_for_analysis for logic
             if all(v is not None for v in [ma_short1_strategy, ma_short2_strategy, ma_short3_strategy, rsi_value_for_analysis]):
                 if latest_close_price > ma_short1_strategy and \
                    ma_short1_strategy > ma_short2_strategy and ma_short2_strategy > ma_short3_strategy and \
-                   rsi_value_for_analysis < rsi_sell_threshold: # Use rsi_value_for_analysis
+                   rsi_value_for_analysis < rsi_sell_threshold:
                     outlook = 'BULLISH'
                     explanation_details.append(f"Price ({latest_close_fmt}) is above key short-term MAs (MA{ma_windows_strategy[0]}={ma_short1_fmt}, MA{ma_windows_strategy[1]}={ma_short2_fmt}).")
                     explanation_details.append(f"Short-term MAs (MA{ma_windows_strategy[0]}, MA{ma_windows_strategy[1]}, MA{ma_windows_strategy[2]}) are aligned bullishly ({ma_short1_fmt} > {ma_short2_fmt} > {ma_short3_fmt}).")
                     explanation_details.append(f"Strategy RSI({rsi_period_strategy}) at {rsi_fmt_strategy} indicates upward momentum and is not overbought (<{rsi_sell_threshold}).")
                 elif latest_close_price < ma_short1_strategy and \
                      ma_short1_strategy < ma_short2_strategy and ma_short2_strategy < ma_short3_strategy and \
-                     rsi_value_for_analysis > rsi_buy_threshold: # Use rsi_value_for_analysis
+                     rsi_value_for_analysis > rsi_buy_threshold: 
                     outlook = 'BEARISH'
                     explanation_details.append(f"Price ({latest_close_fmt}) is below key short-term MAs (MA{ma_windows_strategy[0]}={ma_short1_fmt}, MA{ma_windows_strategy[1]}={ma_short2_fmt}).")
                     explanation_details.append(f"Short-term MAs (MA{ma_windows_strategy[0]}, MA{ma_windows_strategy[1]}, MA{ma_windows_strategy[2]}) are aligned bearishly ({ma_short1_fmt} < {ma_short2_fmt} < {ma_short3_fmt}).")
