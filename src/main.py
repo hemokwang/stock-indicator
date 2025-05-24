@@ -4,6 +4,7 @@ try:
     from rich.table import Table
     from rich.text import Text
     from rich.panel import Panel # For disclaimer
+    from rich import box # Added for box styles
     RICH_AVAILABLE = True
 except ImportError:
     RICH_AVAILABLE = False
@@ -24,7 +25,7 @@ def main():
         # Fallback print function if rich is not available
         def fallback_print(*args, **kwargs):
             print(*args, **kwargs)
-        console_print = fallback_print # This won't be used if rich is available
+        # console_print = fallback_print # This variable was defined but not used. Removed.
 
     parser = argparse.ArgumentParser(description="Stock Analysis CLI Tool")
     parser.add_argument("--stock_code", type=str, required=True, 
@@ -50,12 +51,15 @@ def main():
         "Disclaimer: This is a software-generated analysis based on technical indicators.\n"
         "It is not financial advice. Always do your own research before making any investment decisions."
     )
+    
+    # Print section titles before tables if titles are removed from Table constructor
+    section_title_style = "bold underline"
 
     if not stock_data:
         message = f"\nCould not fetch data for {args.stock_code}. Please check the stock code or your network connection."
         if RICH_AVAILABLE:
             console.print(message, style="bold red")
-            console.print(Panel(disclaimer_text, title="[bold yellow]Important Note[/bold yellow]", border_style="yellow"))
+            console.print(Panel(disclaimer_text, title="[bold yellow]Important Note[/bold yellow]", border_style="yellow", box=box.SQUARE))
         else:
             print(message)
             print("============================================================")
@@ -107,8 +111,10 @@ def main():
     else: actionable_advice_val = f"Analysis resulted in '{technical_outlook_val}'."
 
     if RICH_AVAILABLE:
+        console.print(f"\nStock Analysis Report for: {stock_display_name_formatted}", style=section_title_style)
+        
         # Table 1: General Information & Parameters
-        table1 = Table(show_header=True, header_style="bold magenta", title=f"\nStock Analysis Report for: {stock_display_name_formatted}")
+        table1 = Table(box=box.SQUARE, show_header=True, header_style="bold", row_styles=["", "dim"])
         table1.add_column("Feature", style="dim", width=30)
         table1.add_column("Value")
         table1.add_row("Stock", stock_display_name_formatted)
@@ -120,28 +126,31 @@ def main():
              table1.add_row("Indicator Config", indicator_config_display)
         console.print(table1)
 
+        console.print("\nAnalysis Results", style=section_title_style)
         # Table 2: Analysis Results
-        table2 = Table(show_header=True, header_style="bold cyan", title="Analysis Results")
+        table2 = Table(box=box.SQUARE, show_header=True, header_style="bold", row_styles=["", "dim"])
         table2.add_column("Category", style="dim", width=30)
         table2.add_column("Details")
         table2.add_row("Technical Outlook", technical_outlook_val)
         table2.add_row("Actionable Advice", actionable_advice_val)
-        table2.add_row("Explanation", Text(explanation_val, overflow="fold"))
+        table2.add_row("Explanation", Text(explanation_val, overflow="fold")) # Ensure text wrapping
         console.print(table2)
 
         # Table 3: Indicator Values
         if indicator_values_dict and technical_outlook_val not in ['CONFIG_ERROR', 'DATA_FORMAT_ERROR', 'NO_DATA', 'ERROR']:
-            table3 = Table(show_header=True, header_style="bold green", title="Indicator Values")
+            console.print("\nIndicator Values", style=section_title_style)
+            table3 = Table(box=box.SQUARE, show_header=True, header_style="bold", row_styles=["", "dim"])
             table3.add_column("Indicator", style="dim", width=30)
             table3.add_column("Value")
             for key, value in indicator_values_dict.items():
                 table3.add_row(key, str(value))
-            if table3.rows: # Only print if there are rows
+            if table3.rows: 
                  console.print(table3)
         elif technical_outlook_val not in ['CONFIG_ERROR', 'DATA_FORMAT_ERROR', 'NO_DATA', 'ERROR', 'INSUFFICIENT_DATA']:
-            console.print(Panel("Indicator Values: Not available for this outlook.", title="[dim]Indicator Details[/dim]", border_style="yellow", expand=False))
+             # Using a simple print for this conditional message as it's not tabular data.
+            console.print("\nIndicator Values: Not available for this outlook.", style="italic")
         
-        console.print(Panel(disclaimer_text, title="[bold yellow]Important Note[/bold yellow]", border_style="yellow"))
+        console.print(Panel(disclaimer_text, title="[bold yellow]Important Note[/bold yellow]", border_style="yellow", box=box.SQUARE))
 
     else: # Fallback to old print style
         print("\n============================================================")
