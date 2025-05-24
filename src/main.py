@@ -22,13 +22,19 @@ def format_cell_content(content, target_width, is_first_col=True):
         # For the first column, simply pad the content.
         return f"{content_str:<{target_width}}"
     else:
-        # For the second column, wrap and then pad each line.
-        lines = textwrap.wrap(content_str, width=target_width, 
+        # For the second column, strip leading/trailing whitespace from the input string
+        # before wrapping and padding. This ensures true left-alignment.
+        content_to_wrap = content_str.strip()
+
+        lines = textwrap.wrap(content_to_wrap, width=target_width, 
                               replace_whitespace=False, 
                               drop_whitespace=False,
-                              fix_sentence_endings=True) # Added fix_sentence_endings
+                              fix_sentence_endings=True)
         if not lines:
             return f"{'':<{target_width}}" # Handle empty string case
+        
+        # Each line from textwrap.wrap on a stripped string should be clean.
+        # The f-string padding ensures left alignment.
         padded_lines = [f"{line:<{target_width}}" for line in lines]
         return "\n".join(padded_lines)
 
