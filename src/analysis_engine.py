@@ -241,7 +241,7 @@ class AnalysisEngine:
         else: 
              outlook = 'CONFIG_ERROR'; explanation_details.append("Timeframe logic error.")
 
-        final_explanation = f"Outlook: {outlook} ({config_description}). Reasons: {' '.join(explanation_details) if explanation_details else 'No specific conditions logged.'}"
+        final_explanation = f"Outlook: {outlook} ({config_description})\n\nReasons:\n" + ("- " + "\n- ".join(explanation_details) if explanation_details else "No specific conditions logged.")
         final_indicator_values_output = {k: {'value': format_val(v.get('value')), 'sentiment': v.get('sentiment')} for k, v in calculated_indicator_values.items()}
         return {'outlook': outlook, 'time_horizon_applied': config_description, 'latest_close': latest_close_price,
                 'indicator_values': final_indicator_values_output, 'explanation': final_explanation, 'config_used': config}
@@ -264,4 +264,5 @@ if __name__ == '__main__':
         result = engine.generate_signals(test_data, tf)
         print(f"Outlook: {result.get('outlook')}")
         print(f"Description: {result.get('time_horizon_applied')}")
+        print(f"Explanation for {tf}:\n{result.get('explanation')}\n---")
     print("\n--- End of Tests ---")
