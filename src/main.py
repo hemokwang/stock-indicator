@@ -117,9 +117,9 @@ def main():
 
     # --- Headers for Table 3 (New) ---
     headers3 = [
-        f"{'Indicator'.strip():<{TABLE3_COL1_INDICATOR_WIDTH}}", # Strip static text for consistency
+        f"{'Indicator'.strip():<{TABLE3_COL1_INDICATOR_WIDTH}}", 
         f"{'Value'.strip():<{TABLE3_COL2_VALUE_WIDTH}}",
-        f"{'Sentiment'.strip():<{TABLE3_COL3_SENTIMENT_WIDTH}}"
+        f"{'Signal'.strip():<{TABLE3_COL3_SENTIMENT_WIDTH}}" # Changed "Sentiment" to "Signal"
     ]
 
     print(f"\n--- Stock Analysis Report for: {raw_stock_display_name} ---") 
