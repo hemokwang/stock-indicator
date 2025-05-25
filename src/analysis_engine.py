@@ -1,4 +1,5 @@
 # src/analysis_engine.py
+import pandas as pd # Import pandas for easier data manipulation
 from .strategy_configs import STRATEGY_CONFIGS
 from .indicators.moving_average import calculate_moving_average
 from .indicators.rsi import calculate_rsi
@@ -8,41 +9,116 @@ class AnalysisEngine:
     def __init__(self):
         print("AnalysisEngine initialized (for dynamic time horizons).")
 
+    def _get_historical_indicator_data(self, indicator_series: list, dates_series: list, num_periods: int) -> list:
+        """
+        Extracts the last num_periods of indicator data along with corresponding dates.
+        Returns a list of dictionaries: [{'date': date, 'value': value}].
+        Handles cases where series might be shorter than num_periods or have None values.
+        """
+        if not indicator_series or not dates_series:
+            return []
+
+        # Ensure dates_series is a list of strings, not pandas Timestamps or other objects
+        # This is important if stock_data dates are not already strings.
+        # For this implementation, we assume dates in stock_data are already strings.
+        
+        historical_data = []
+        # Start from the end of both series
+        indicator_idx = len(indicator_series) - 1
+        date_idx = len(dates_series) - 1
+        
+        count = 0
+        while count < num_periods and indicator_idx >= 0 and date_idx >= 0:
+            # We take the date from dates_series and value from indicator_series,
+            # assuming they are aligned from the end.
+            # If indicator_series can be longer than price series (e.g. due to padding),
+            # or shorter (e.g. calculations needing min periods), careful alignment is needed.
+            # For now, simple reverse iteration is used.
+            date_val = dates_series[date_idx]
+            indicator_val = indicator_series[indicator_idx]
+
+            # Only add if indicator_val is not None (or handle as needed)
+            # The problem description implies we should return what's available.
+            # If an indicator cannot be calculated for a period, its value might be None.
+            historical_data.append({'date': date_val, 'value': indicator_val})
+            
+            indicator_idx -= 1
+            date_idx -= 1
+            count += 1
+            
+        return historical_data[::-1] # Reverse to maintain chronological order
+
     def generate_signals(self, stock_data: list, timeframe: str):
         time_horizon_capitalized = timeframe.capitalize() if isinstance(timeframe, str) else "Unknown"
-        
+        N_HISTORICAL_PERIODS = 20 # Define the number of historical periods
+
         def format_val(val, precision=2):
             return round(val, precision) if isinstance(val, (int, float)) else "N/A"
+
+        historical_indicators_default = {
+            'ohlcv': [], 
+            'ma': {'MA5': [], 'MA10': [], 'MA20': []},
+            'rsi': {'RSI6': [], 'RSI12': [], 'RSI24': []},
+            'bb': {'BB_Upper': [], 'BB_Middle': [], 'BB_Lower': []}
+        }
 
         error_return_template = {
             'outlook': 'ERROR', 'time_horizon_applied': time_horizon_capitalized,
             'latest_close': None, 'indicator_values': {}, 
-            'explanation': 'An unspecified error occurred.', 'config_used': {}
+            'explanation': 'An unspecified error occurred.', 'config_used': {},
+            'historical_indicators': historical_indicators_default
         }
 
         if not stock_data:
             error_return_template.update({'outlook':'DATA_FORMAT_ERROR', 'explanation':'No stock data provided or it was empty.'}); return error_return_template
 
+        # Extract dates and OHLCV data early for historical population
+        # Ensure items are dicts and have required keys before trying to access them.
+        # This also helps in validating stock_data structure early on.
+        
+        # Validate and extract OHLCV and dates
+        validated_stock_data = []
+        parse_error_detail = None
+        for i, item in enumerate(stock_data):
+            if not isinstance(item, dict):
+                parse_error_detail = f"Item at index {i} is not a dictionary."
+                break
+            required_keys = ['date', 'open', 'high', 'low', 'close', 'volume']
+            missing_keys = [key for key in required_keys if key not in item]
+            if missing_keys:
+                parse_error_detail = f"Item at index {i} is missing keys: {', '.join(missing_keys)}."
+                break
+            # Further type validation for each field can be added here if necessary
+            validated_stock_data.append(item)
+        
+        if parse_error_detail:
+            error_return_template.update({'outlook':'DATA_FORMAT_ERROR', 'explanation': parse_error_detail}); return error_return_template
+
+        # Extract close_prices and dates from validated_stock_data
         try:
-            valid_prices = []
-            for item in stock_data:
-                if not isinstance(item, dict) or 'close' not in item:
-                    error_return_template.update({'outlook':'DATA_FORMAT_ERROR', 'explanation':"Stock_data items must be dictionaries with a 'close' key."}); return error_return_template
-                price = item['close']
-                if not (isinstance(price, (int, float)) or price is None):
-                    error_return_template.update({'outlook':'DATA_FORMAT_ERROR', 'explanation':"Close prices must be numeric (int/float) or None."}); return error_return_template
-                valid_prices.append(price)
+            close_prices = [item['close'] for item in validated_stock_data]
+            dates_series = [item['date'] for item in validated_stock_data] # For historical data alignment
             
-            close_prices = valid_prices
-            if not close_prices or len(close_prices) < 2:
+            # Further validation on close_prices as before
+            if not close_prices or len(close_prices) < 2: # Min 2 for some indicators, though more for 20-period history
                 error_return_template.update({'outlook':'DATA_FORMAT_ERROR', 'explanation':'Not enough valid close price data (minimum 2 required).'}); return error_return_template
             
+            # Ensure all close prices are numeric or None, and then filter out None for calculations if needed by indicator functions
+            # This step was slightly different before, ensure it's robust
+            if not all(isinstance(p, (int, float)) or p is None for p in close_prices):
+                 error_return_template.update({'outlook':'DATA_FORMAT_ERROR', 'explanation':"Close prices must be numeric (int/float) or None."}); return error_return_template
+
             latest_close_price = close_prices[-1]
-            if latest_close_price is None:
+            if latest_close_price is None: # This check remains important
                 error_return_template.update({'outlook':'INSUFFICIENT_DATA', 'explanation':'Latest closing price is None.'}); return error_return_template
-                
-        except (TypeError, KeyError) as e:
-            error_return_template.update({'outlook':'DATA_FORMAT_ERROR', 'explanation':f"Error accessing close prices: {e}."}); return error_return_template
+        
+        except (TypeError, KeyError) as e: # Catch errors during extraction
+            error_return_template.update({'outlook':'DATA_FORMAT_ERROR', 'explanation':f"Error processing stock data fields: {e}."}); return error_return_template
+
+        # Historical OHLCV data (last N_HISTORICAL_PERIODS)
+        # Take from validated_stock_data to ensure it's clean
+        historical_ohlcv = validated_stock_data[-N_HISTORICAL_PERIODS:]
+
 
         if timeframe not in STRATEGY_CONFIGS:
             error_return_template.update({'outlook':'CONFIG_ERROR', 'explanation':f"Invalid timeframe '{timeframe}' specified."}); return error_return_template
@@ -120,8 +196,47 @@ class AnalysisEngine:
             calculated_indicator_values['BB_Upper'] = {'value': latest_bb_upper, 'sentiment': 'Upper Band'}
             calculated_indicator_values['BB_Middle'] = {'value': latest_bb_middle, 'sentiment': 'Middle Band (SMA)'}
             calculated_indicator_values['BB_Lower'] = {'value': latest_bb_lower, 'sentiment': 'Lower Band'}
+
+        # --- Populate historical_indicators SECTION ---
+        # This needs to be done BEFORE checking essential_indicators_missing for strategy,
+        # so historical data is available even if the main outlook is INSUFFICIENT_DATA.
+        populated_historical_indicators = historical_indicators_default.copy()
+        populated_historical_indicators['ohlcv'] = historical_ohlcv
         
-        # --- Check Essential Indicators ---
+        # Populate historical MAs
+        ma_periods_historical = [5, 10, 20]
+        for period in ma_periods_historical:
+            ma_full_series = calculate_moving_average(close_prices, period)
+            populated_historical_indicators['ma'][f'MA{period}'] = self._get_historical_indicator_data(
+                ma_full_series, dates_series, N_HISTORICAL_PERIODS
+            )
+
+        # Populate historical RSIs
+        rsi_periods_historical = [6, 12, 24]
+        for period in rsi_periods_historical:
+            rsi_full_series = calculate_rsi(close_prices, period)
+            populated_historical_indicators['rsi'][f'RSI{period}'] = self._get_historical_indicator_data(
+                rsi_full_series, dates_series, N_HISTORICAL_PERIODS
+            )
+
+        # Populate historical Bollinger Bands
+        bb_period_historical = 20 
+        bb_std_dev_historical = 2.0 
+        middle_band_full, upper_band_full, lower_band_full = calculate_bollinger_bands(
+            close_prices, period=bb_period_historical, std_dev_multiplier=bb_std_dev_historical
+        )
+        populated_historical_indicators['bb']['BB_Middle'] = self._get_historical_indicator_data(
+            middle_band_full, dates_series, N_HISTORICAL_PERIODS
+        )
+        populated_historical_indicators['bb']['BB_Upper'] = self._get_historical_indicator_data(
+            upper_band_full, dates_series, N_HISTORICAL_PERIODS
+        )
+        populated_historical_indicators['bb']['BB_Lower'] = self._get_historical_indicator_data(
+            lower_band_full, dates_series, N_HISTORICAL_PERIODS
+        )
+        # --- END Populate historical_indicators SECTION ---
+
+        # --- Check Essential Indicators (for strategy decision) ---
         essential_indicators_missing = False
         missing_details_parts = []
         for strat_ma_window in ma_windows_strategy: 
@@ -152,8 +267,11 @@ class AnalysisEngine:
         if essential_indicators_missing:
             explanation_msg = (f"Outlook: INSUFFICIENT_DATA ({config_description}) due to missing essential strategy indicators: {'; '.join(missing_details_parts)}.")
             formatted_indicator_values_on_error = {k: {'value': format_val(v.get('value')), 'sentiment': v.get('sentiment')} for k, v in calculated_indicator_values.items()}
+            # Ensure populated_historical_indicators is included in this return path
             return {'outlook': 'INSUFFICIENT_DATA', 'time_horizon_applied': config_description, 'latest_close': latest_close_price,
-                    'indicator_values': formatted_indicator_values_on_error, 'explanation': explanation_msg, 'config_used': config}
+                    'indicator_values': formatted_indicator_values_on_error, 'explanation': explanation_msg, 'config_used': config,
+                    'historical_indicators': populated_historical_indicators # Added this line
+                    }
 
         # --- Core Outlook Logic ---
         outlook = 'NEUTRAL_WAIT'; explanation_details = []
@@ -243,8 +361,14 @@ class AnalysisEngine:
 
         final_explanation = f"Outlook: {outlook} ({config_description})\n\nReasons:\n" + ("- " + "\n- ".join(explanation_details) if explanation_details else "No specific conditions logged.")
         final_indicator_values_output = {k: {'value': format_val(v.get('value')), 'sentiment': v.get('sentiment')} for k, v in calculated_indicator_values.items()}
+        
+        # Note: populated_historical_indicators is now defined and populated *before* the essential_indicators_missing check.
+        # So it's available for all successful or INSUFFICIENT_DATA (strategy-related) returns.
+
         return {'outlook': outlook, 'time_horizon_applied': config_description, 'latest_close': latest_close_price,
-                'indicator_values': final_indicator_values_output, 'explanation': final_explanation, 'config_used': config}
+                'indicator_values': final_indicator_values_output, 'explanation': final_explanation, 'config_used': config,
+                'historical_indicators': populated_historical_indicators # Ensure it's added to the return
+                }
 
 if __name__ == '__main__':
     engine = AnalysisEngine()

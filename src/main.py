@@ -23,7 +23,7 @@ TABLE3_COL3_SIGNAL_WIDTH = 15 # Was TABLE3_COL3_SENTIMENT_WIDTH, name changed fo
 
 # --- Helper function for formatting cell content (Used by Table 1 & 2) ---
 def format_cell_content(content, target_width, is_first_col=True):
-    content_str = re.sub(r'^\s+|\s+$', '', str(content)) 
+    content_str = re.sub(r'^\s+|\s+$', '', str(content))
 
     if is_first_col:
         return f"{content_str:<{target_width}}"
@@ -37,9 +37,127 @@ def format_cell_content(content, target_width, is_first_col=True):
         padded_lines = [f"{line:<{target_width}}" for line in lines]
         return "\n".join(padded_lines)
 
+# --- Helper function for preparing data for MA, RSI, BB tables ---
+def _prepare_indicator_table_data(ohlcv_data_for_dates: list, indicator_group_data: dict, indicator_keys: list, num_periods: int = 20) -> tuple:
+    """
+    Prepares headers and rows for tabulate for MA, RSI, BB historical data.
+    Args:
+        ohlcv_data_for_dates: List of {'date': d, ...} from historical_ohlcv, used to get the reference dates.
+        indicator_group_data: e.g., historical_data['ma']
+        indicator_keys: e.g., ['MA5', 'MA10', 'MA20']
+        num_periods: Number of recent periods to display.
+    Returns:
+        A tuple (headers, table_rows).
+    """
+    if not ohlcv_data_for_dates: # If no OHLCV data, can't get dates
+        return (['Date'] + indicator_keys, [])
+
+    # Get the last num_periods dates from OHLCV data (which is already sliced to N_HISTORICAL_PERIODS)
+    # The ohlcv_data_for_dates is assumed to be in chronological order. We want the most recent num_periods.
+    reference_dates = [item['date'] for item in ohlcv_data_for_dates][-num_periods:]
+
+    headers = ['Date'] + indicator_keys
+    table_rows = []
+
+    # Create lookup maps for each indicator series
+    indicator_maps = {}
+    for key in indicator_keys:
+        series_data = indicator_group_data.get(key, [])
+        indicator_maps[key] = {item['date']: item['value'] for item in series_data}
+
+    for date_str in reference_dates:
+        row = [date_str]
+        for key in indicator_keys:
+            value = indicator_maps[key].get(date_str)
+            # Format to 2 decimal places if float, else "N/A"
+            formatted_value = f"{value:.2f}" if isinstance(value, float) else "N/A"
+            row.append(formatted_value)
+        table_rows.append(row)
+    
+    return headers, table_rows
+
+# --- Functions to print historical data tables ---
+def print_ohlcv_table(ohlcv_data: list, num_periods: int = 20):
+    print("\n--- Recent 20-Day OHLCV ---")
+    if not ohlcv_data:
+        print("Historical OHLCV data not available or empty.")
+        return
+
+    # Take the last num_periods, ohlcv_data should already be the last 20 from analysis_engine
+    display_data = ohlcv_data[-num_periods:]
+
+    headers = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
+    table_rows = []
+    for item in display_data:
+        row = [
+            item.get('date', 'N/A'),
+            f"{item.get('open', 0.0):.2f}",
+            f"{item.get('high', 0.0):.2f}",
+            f"{item.get('low', 0.0):.2f}",
+            f"{item.get('close', 0.0):.2f}",
+            f"{item.get('volume', 0):,}" # Format volume with comma for thousands
+        ]
+        table_rows.append(row)
+    
+    if not table_rows:
+        print("No data to display for OHLCV.")
+        return
+    print(tabulate(table_rows, headers=headers, tablefmt="fancy_grid", floatfmt=".2f"))
+
+def print_ma_table(historical_data: dict, num_periods: int = 20):
+    print("\n--- Recent 20-Day Moving Averages (MA5, MA10, MA20) ---")
+    ma_data = historical_data.get('ma')
+    ohlcv_data_for_dates = historical_data.get('ohlcv')
+
+    if not ma_data or not ohlcv_data_for_dates:
+        print("Historical MA data or OHLCV date reference not available.")
+        return
+
+    indicator_keys = ['MA5', 'MA10', 'MA20']
+    headers, table_rows = _prepare_indicator_table_data(ohlcv_data_for_dates, ma_data, indicator_keys, num_periods)
+    
+    if not table_rows:
+        print("No data to display for Moving Averages.")
+        return
+    print(tabulate(table_rows, headers=headers, tablefmt="fancy_grid"))
+
+def print_rsi_table(historical_data: dict, num_periods: int = 20):
+    print("\n--- Recent 20-Day RSI (RSI6, RSI12, RSI24) ---")
+    rsi_data = historical_data.get('rsi')
+    ohlcv_data_for_dates = historical_data.get('ohlcv')
+
+    if not rsi_data or not ohlcv_data_for_dates:
+        print("Historical RSI data or OHLCV date reference not available.")
+        return
+
+    indicator_keys = ['RSI6', 'RSI12', 'RSI24']
+    headers, table_rows = _prepare_indicator_table_data(ohlcv_data_for_dates, rsi_data, indicator_keys, num_periods)
+
+    if not table_rows:
+        print("No data to display for RSI.")
+        return
+    print(tabulate(table_rows, headers=headers, tablefmt="fancy_grid"))
+
+def print_bb_table(historical_data: dict, num_periods: int = 20):
+    print("\n--- Recent 20-Day Bollinger Bands ---")
+    bb_data = historical_data.get('bb')
+    ohlcv_data_for_dates = historical_data.get('ohlcv')
+
+    if not bb_data or not ohlcv_data_for_dates:
+        print("Historical Bollinger Bands data or OHLCV date reference not available.")
+        return
+    
+    indicator_keys = ['BB_Upper', 'BB_Middle', 'BB_Lower']
+    headers, table_rows = _prepare_indicator_table_data(ohlcv_data_for_dates, bb_data, indicator_keys, num_periods)
+
+    if not table_rows:
+        print("No data to display for Bollinger Bands.")
+        return
+    print(tabulate(table_rows, headers=headers, tablefmt="fancy_grid"))
+
 def main():
     parser = argparse.ArgumentParser(description="Stock Analysis CLI Tool")
-    parser.add_argument("--stock_code", type=str, required=True, 
+    parser.add_argument("--stock_code", type=str, required=True,
                         help="Stock code to analyze (e.g., '000001', '600519').")
     parser.add_argument("--timeframe", type=str, choices=['daily', 'weekly', 'monthly'],
                         default='daily',
@@ -174,7 +292,7 @@ def main():
         analysis_results_data_padded.append([col1_formatted, col2_formatted])
     print(tabulate(analysis_results_data_padded, headers=headers2, tablefmt="fancy_grid"))
 
-    print("\n--- Indicator Values ---")
+    print("\n--- Indicator Overview ---")
     indicator_data_table3_padded = []
     if indicator_values_from_engine and str(analysis_result.get('outlook', '')).strip() not in ['CONFIG_ERROR', 'DATA_FORMAT_ERROR', 'NO_DATA', 'ERROR']:
         for key, item_dict in indicator_values_from_engine.items():
@@ -195,6 +313,43 @@ def main():
         print("Indicator Values: Not available for this outlook.")
     else: 
         print("Indicator Values: Not applicable or error in processing.")
+
+    print("\n--- Indicator Overview ---")
+    indicator_data_table3_padded = []
+    if indicator_values_from_engine and str(analysis_result.get('outlook', '')).strip() not in ['CONFIG_ERROR', 'DATA_FORMAT_ERROR', 'NO_DATA', 'ERROR']:
+        for key, item_dict in indicator_values_from_engine.items():
+            key_str = re.sub(r'^\s+|\s+$', '', str(key))
+            value_str = re.sub(r'^\s+|\s+$', '', str(item_dict.get('value', 'N/A'))) 
+            sentiment_str = re.sub(r'^\s+|\s+$', '', str(item_dict.get('sentiment', 'N/A')))
+            
+            # Apply direct f-string padding with new widths for Table 3
+            indicator_name_padded = f"{key_str:<{TABLE3_COL1_INDICATOR_WIDTH}}"
+            value_padded = f"{value_str:<{TABLE3_COL2_VALUE_WIDTH}}" # Uses new width
+            sentiment_padded = f"{sentiment_str:<{TABLE3_COL3_SIGNAL_WIDTH}}"
+            
+            indicator_data_table3_padded.append([indicator_name_padded, value_padded, sentiment_padded])
+    
+    if indicator_data_table3_padded:
+        print(tabulate(indicator_data_table3_padded, headers=headers3, tablefmt="fancy_grid", colalign=("left", "left", "left")))
+    elif str(analysis_result.get('outlook', '')).strip() not in ['CONFIG_ERROR', 'DATA_FORMAT_ERROR', 'NO_DATA', 'ERROR', 'INSUFFICIENT_DATA']:
+        print("Indicator Values: Not available for this outlook.")
+    else: 
+        print("Indicator Values: Not applicable or error in processing.")
+
+    # --- Display Historical Data Tables ---
+    historical_data_from_result = analysis_result.get('historical_indicators')
+
+    if historical_data_from_result:
+        # The num_periods=20 is default in functions, but can be passed if needed.
+        # ohlcv_data itself is already the last 20 (or less if total data < 20)
+        # from analysis_engine.
+        print_ohlcv_table(historical_data_from_result.get('ohlcv')) 
+        print_ma_table(historical_data_from_result)
+        print_rsi_table(historical_data_from_result)
+        print_bb_table(historical_data_from_result)
+    else:
+        print("\n--- Historical Data Tables ---") # Add a title even if data is missing
+        print("Historical indicator data not available.")
 
     print("\n------------------------------------------------------------")
     print(disclaimer_text)

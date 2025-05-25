@@ -26,9 +26,11 @@ def calculate_rsi(data: list, period: int):
     delta = s.diff() # First element will be NaN
 
     # Separate gains and losses
-    # .where(condition, other_value) replaces values where condition is False
-    gain = delta.where(delta > 0, 0.0)
-    loss = -delta.where(delta < 0, 0.0) # Loss is stored as a positive value
+    # Ensure that if delta[0] is NaN, gain[0] and loss[0] also become NaN or are handled appropriately by ewm.
+    # A common way:
+    gain = delta.clip(lower=0) # All negative values become 0, positive values remain, NaN remains NaN.
+    loss = -delta.clip(upper=0) # All positive values become 0, negative values become positive, NaN remains NaN.
+    # Now, gain[0] and loss[0] will be NaN because delta[0] is NaN.
 
     # Calculate initial average gain and loss.
     # Wilder's smoothing is equivalent to an Exponential Moving Average (EMA) with alpha = 1/period.
