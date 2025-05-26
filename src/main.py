@@ -88,7 +88,7 @@ def print_ohlcv_table(ohlcv_data: list, num_periods: int = 20):
     display_data = ohlcv_data[-num_periods:]
 
     headers = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume', 
-               "Change Pct", "Volume Ratio"] # Changed from Chinese
+               "Change %", "Volume Ratio"] # Changed from Chinese
     table_rows = []
     
     col_alignments = ["left"] + ["right"] * (len(headers) - 1) # Date left, rest right
@@ -295,9 +295,17 @@ def main():
         print(message); print("="*60); print(disclaimer_text); print("="*60); return
 
     engine = AnalysisEngine()
-    # Pass stock_code to generate_signals
+    
+    # Fetch fund flow data for the engine
+    # Using num_days=5 to get a small recent dataset for the engine.
+    # The engine currently only uses the latest record from this.
+    N_HISTORICAL_PERIODS_FOR_FUND_FLOW = 5 
+    fund_flow_data_for_engine = fetch_stock_fund_flow(clean_stock_code, num_days=N_HISTORICAL_PERIODS_FOR_FUND_FLOW)
+
+    # Pass stock_code and fund_flow_data_for_engine to generate_signals
     analysis_result = engine.generate_signals(stock_code=clean_stock_code, 
-                                              stock_data=stock_data, 
+                                              stock_data=stock_data,
+                                              fund_flow_data=fund_flow_data_for_engine,
                                               timeframe=args.timeframe) 
 
     date_of_latest_data_raw = str(stock_data[-1].get('date', 'N/A')) if stock_data else "N/A"

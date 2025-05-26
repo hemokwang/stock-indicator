@@ -5,6 +5,8 @@ from .strategy_configs import STRATEGY_CONFIGS
 from .indicators.moving_average import calculate_moving_average
 from .indicators.rsi import calculate_rsi
 from .indicators import calculate_bollinger_bands # Added
+from .indicators.macd import calculate_macd
+from .indicators.kdj import calculate_kdj
 
 class AnalysisEngine:
     def __init__(self):
@@ -49,7 +51,7 @@ class AnalysisEngine:
             
         return historical_data[::-1] # Reverse to maintain chronological order
 
-    def generate_signals(self, stock_code: str, stock_data: list, timeframe: str): # Added stock_code
+    def generate_signals(self, stock_code: str, stock_data: list, fund_flow_data: list, timeframe: str):
         time_horizon_capitalized = timeframe.capitalize() if isinstance(timeframe, str) else "Unknown"
         N_HISTORICAL_PERIODS = 20 # Define the number of historical periods
 
@@ -63,7 +65,9 @@ class AnalysisEngine:
             'ohlcv': [], 
             'ma': {'MA5': [], 'MA10': [], 'MA20': []},
             'rsi': {'RSI6': [], 'RSI12': [], 'RSI24': []},
-            'bb': {'BB_Upper': [], 'BB_Middle': [], 'BB_Lower': []}
+            'bb': {'BB_Upper': [], 'BB_Middle': [], 'BB_Lower': []},
+            'macd': {'MACD_Line': [], 'MACD_Signal': [], 'MACD_Hist': []},
+            'kdj': {'KDJ_K': [], 'KDJ_D': [], 'KDJ_J': []}
         }
 
         error_return_template = {
@@ -110,6 +114,16 @@ class AnalysisEngine:
         # Convert validated_stock_data to DataFrame for easier calculations
         stock_df = pd.DataFrame(validated_stock_data)
         stock_df['date'] = pd.to_datetime(stock_df['date']).dt.strftime('%Y-%m-%d') # Standardize date format
+        
+        # Ensure 'high' and 'low' are numeric, handle potential errors
+        try:
+            stock_df['high'] = pd.to_numeric(stock_df['high'], errors='coerce')
+            stock_df['low'] = pd.to_numeric(stock_df['low'], errors='coerce')
+        except Exception as e:
+            error_return_template.update({'outlook':'DATA_FORMAT_ERROR', 'explanation':f"Error converting high/low prices to numeric: {e}."}); return error_return_template
+
+        if stock_df['high'].isnull().any() or stock_df['low'].isnull().any():
+            error_return_template.update({'outlook':'DATA_FORMAT_ERROR', 'explanation':"Non-numeric or missing high/low prices found after conversion."}); return error_return_template
 
         # Calculate 5-day moving average of volume for Volume Ratio
         stock_df['volume_ma5'] = stock_df['volume'].rolling(window=5, min_periods=1).mean()
@@ -180,6 +194,19 @@ class AnalysisEngine:
         
         calculated_indicator_values = {} 
         
+        # --- Fund Flow Data Processing ---
+        main_net_inflow_amount = None
+        main_net_inflow_pct = None
+        if fund_flow_data and isinstance(fund_flow_data, list) and len(fund_flow_data) > 0:
+            # Assuming the last record is the latest if sorted chronologically
+            latest_fund_flow_record = fund_flow_data[-1]
+            if isinstance(latest_fund_flow_record, dict):
+                main_net_inflow_amount = latest_fund_flow_record.get('main_net_inflow_amount')
+                main_net_inflow_pct = latest_fund_flow_record.get('main_net_inflow_pct')
+
+        calculated_indicator_values['MainNetInflowAmount'] = {'value': main_net_inflow_amount, 'sentiment': 'N/A'}
+        calculated_indicator_values['MainNetInflowPct'] = {'value': main_net_inflow_pct, 'sentiment': 'N/A'}
+
         # --- Moving Average Calculations & Sentiment ---
         ma_windows_strategy = config.get('moving_averages', {}).get('windows', [])
         DISPLAY_MA_WINDOWS = [5, 10, 20, 50, 100, 200] 
@@ -246,6 +273,27 @@ class AnalysisEngine:
             calculated_indicator_values['BB_Upper'] = {'value': latest_bb_upper, 'sentiment': 'Upper Band'}
             calculated_indicator_values['BB_Middle'] = {'value': latest_bb_middle, 'sentiment': 'Middle Band (SMA)'}
             calculated_indicator_values['BB_Lower'] = {'value': latest_bb_lower, 'sentiment': 'Lower Band'}
+        
+        # --- MACD Calculations & Sentiment ---
+        macd_line, signal_line, macd_hist = calculate_macd(close_prices)
+        latest_macd_line = macd_line[-1] if macd_line and len(macd_line) == len(close_prices) else None
+        latest_signal_line = signal_line[-1] if signal_line and len(signal_line) == len(close_prices) else None
+        latest_macd_hist = macd_hist[-1] if macd_hist and len(macd_hist) == len(close_prices) else None
+        calculated_indicator_values['MACD_Line'] = {'value': latest_macd_line, 'sentiment': 'N/A'}
+        calculated_indicator_values['MACD_Signal'] = {'value': latest_signal_line, 'sentiment': 'N/A'}
+        calculated_indicator_values['MACD_Hist'] = {'value': latest_macd_hist, 'sentiment': 'N/A'}
+
+        # --- KDJ Calculations & Sentiment ---
+        high_prices = stock_df['high'].tolist()
+        low_prices = stock_df['low'].tolist()
+        k_line, d_line, j_line = calculate_kdj(high_prices, low_prices, close_prices)
+        latest_k = k_line[-1] if k_line and len(k_line) == len(close_prices) else None
+        latest_d = d_line[-1] if d_line and len(d_line) == len(close_prices) else None
+        latest_j = j_line[-1] if j_line and len(j_line) == len(close_prices) else None
+        calculated_indicator_values['KDJ_K'] = {'value': latest_k, 'sentiment': 'N/A'}
+        calculated_indicator_values['KDJ_D'] = {'value': latest_d, 'sentiment': 'N/A'}
+        calculated_indicator_values['KDJ_J'] = {'value': latest_j, 'sentiment': 'N/A'}
+
 
         # --- Populate historical_indicators SECTION ---
         # This needs to be done BEFORE checking essential_indicators_missing for strategy,
@@ -283,6 +331,30 @@ class AnalysisEngine:
         )
         populated_historical_indicators['bb']['BB_Lower'] = self._get_historical_indicator_data(
             lower_band_full, dates_series, N_HISTORICAL_PERIODS
+        )
+        
+        # Populate historical MACD
+        # macd_line, signal_line, macd_hist are already calculated
+        populated_historical_indicators['macd']['MACD_Line'] = self._get_historical_indicator_data(
+            macd_line, dates_series, N_HISTORICAL_PERIODS
+        )
+        populated_historical_indicators['macd']['MACD_Signal'] = self._get_historical_indicator_data(
+            signal_line, dates_series, N_HISTORICAL_PERIODS
+        )
+        populated_historical_indicators['macd']['MACD_Hist'] = self._get_historical_indicator_data(
+            macd_hist, dates_series, N_HISTORICAL_PERIODS
+        )
+
+        # Populate historical KDJ
+        # k_line, d_line, j_line are already calculated
+        populated_historical_indicators['kdj']['KDJ_K'] = self._get_historical_indicator_data(
+            k_line, dates_series, N_HISTORICAL_PERIODS
+        )
+        populated_historical_indicators['kdj']['KDJ_D'] = self._get_historical_indicator_data(
+            d_line, dates_series, N_HISTORICAL_PERIODS
+        )
+        populated_historical_indicators['kdj']['KDJ_J'] = self._get_historical_indicator_data(
+            j_line, dates_series, N_HISTORICAL_PERIODS
         )
         # --- END Populate historical_indicators SECTION ---
 
@@ -451,11 +523,14 @@ if __name__ == '__main__':
     
     # Generate more data points to ensure N_HISTORICAL_PERIODS can be sliced and calculations like 5-day MA work.
     test_data = generate_mock_data(250) # Use at least N_HISTORICAL_PERIODS + few days for MA calculation stability
+    mock_ff_data = [{'date': '2023-01-20', 'main_net_inflow_amount': 1000000, 'main_net_inflow_pct': 0.05},
+                    {'date': '2023-01-19', 'main_net_inflow_amount': -500000, 'main_net_inflow_pct': -0.02}]
+
 
     for tf in ['daily', 'weekly', 'monthly', 'invalid_timeframe']: 
         print(f"\n** Testing Timeframe: {tf} **")
-        # Pass mock_stock_code to generate_signals
-        result = engine.generate_signals(mock_stock_code, test_data, tf)
+        # Pass mock_stock_code and mock_ff_data to generate_signals
+        result = engine.generate_signals(mock_stock_code, test_data, mock_ff_data, tf)
         print(f"Outlook: {result.get('outlook')}")
         print(f"Description: {result.get('time_horizon_applied')}")
         # Print historical_ohlcv to check new fields if needed
