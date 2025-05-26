@@ -222,8 +222,8 @@ def print_individual_fund_flow_table(stock_code: str, stock_data: list, num_days
     print(f"\n--- Stock Individual Fund Flow Data (Last {num_days} Days - Data up to {latest_date_str}) ---")
 
     headers = [
-        '日期', '收盘价', '涨跌幅', 
-        '主力净流入-净额', '主力净流入-净占比'
+        'Date', 'Close', 'Change Pct', 
+        'Main Net Inflow Amount', 'Main Net Inflow Pct'
     ]
     
     table_rows = []

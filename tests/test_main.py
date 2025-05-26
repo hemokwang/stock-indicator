@@ -242,7 +242,7 @@ class TestMainTableFunctions(unittest.TestCase):
         
         # Assert Headers
         passed_headers = mock_tabulate.call_args[1].get('headers') # call_args is ((rows, ), {headers: ..., tablefmt: ...})
-        expected_headers = ['日期', '收盘价', '涨跌幅', '主力净流入-净额', '主力净流入-净占比']
+        expected_headers = ['Date', 'Close', 'Change Pct', 'Main Net Inflow Amount', 'Main Net Inflow Pct']
         self.assertEqual(passed_headers, expected_headers)
 
         # Assert the order of rows passed to tabulate (oldest first)
