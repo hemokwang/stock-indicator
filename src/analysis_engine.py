@@ -279,9 +279,63 @@ class AnalysisEngine:
         latest_macd_line = macd_line[-1] if macd_line and len(macd_line) == len(close_prices) else None
         latest_signal_line = signal_line[-1] if signal_line and len(signal_line) == len(close_prices) else None
         latest_macd_hist = macd_hist[-1] if macd_hist and len(macd_hist) == len(close_prices) else None
-        calculated_indicator_values['MACD_Line'] = {'value': latest_macd_line, 'sentiment': 'N/A'}
-        calculated_indicator_values['MACD_Signal'] = {'value': latest_signal_line, 'sentiment': 'N/A'}
-        calculated_indicator_values['MACD_Hist'] = {'value': latest_macd_hist, 'sentiment': 'N/A'}
+
+        # MACD Line Sentiment
+        macd_line_sentiment = "Neutral"
+        if latest_macd_line is not None:
+            if latest_macd_line > 0:
+                macd_line_sentiment = "Positive (Above Zero)"
+            elif latest_macd_line < 0:
+                macd_line_sentiment = "Negative (Below Zero)"
+
+        # MACD Line vs. Signal Line Crossover
+        prev_macd_line = macd_line[-2] if len(macd_line) > 1 and len(macd_line) == len(close_prices) else None
+        prev_signal_line = signal_line[-2] if len(signal_line) > 1 and len(signal_line) == len(close_prices) else None
+
+        if all(val is not None for val in [latest_macd_line, latest_signal_line, prev_macd_line, prev_signal_line]):
+            if prev_macd_line < prev_signal_line and latest_macd_line > latest_signal_line:
+                macd_line_sentiment = "Bullish Crossover"
+            elif prev_macd_line > prev_signal_line and latest_macd_line < latest_signal_line:
+                macd_line_sentiment = "Bearish Crossover"
+            elif latest_macd_line > latest_signal_line:
+                macd_line_sentiment = "Bullish (MACD > Signal)"
+            elif latest_macd_line < latest_signal_line:
+                macd_line_sentiment = "Bearish (MACD < Signal)"
+        elif latest_macd_line is not None and latest_signal_line is not None: # Fallback if no previous data for crossover
+            if latest_macd_line > latest_signal_line:
+                macd_line_sentiment = "Bullish (MACD > Signal)"
+            elif latest_macd_line < latest_signal_line:
+                macd_line_sentiment = "Bearish (MACD < Signal)"
+        
+        calculated_indicator_values['MACD_Line'] = {'value': latest_macd_line, 'sentiment': macd_line_sentiment}
+
+        # MACD Signal Line Sentiment
+        calculated_indicator_values['MACD_Signal'] = {'value': latest_signal_line, 'sentiment': "Reference Line"}
+
+        # MACD Histogram Sentiment
+        macd_hist_sentiment = "Neutral"
+        if latest_macd_hist is not None:
+            if latest_macd_hist > 0:
+                macd_hist_sentiment = "Positive" # Simplified base
+            elif latest_macd_hist < 0:
+                macd_hist_sentiment = "Negative" # Simplified base
+
+        prev_macd_hist = macd_hist[-2] if len(macd_hist) > 1 and len(macd_hist) == len(close_prices) else None
+        if latest_macd_hist is not None and prev_macd_hist is not None:
+            if latest_macd_hist > 0 and prev_macd_hist < 0:
+                macd_hist_sentiment = "Turned Positive"
+            elif latest_macd_hist < 0 and prev_macd_hist > 0:
+                macd_hist_sentiment = "Turned Negative"
+            elif latest_macd_hist > 0 and latest_macd_hist > prev_macd_hist:
+                macd_hist_sentiment = "Increasing Positive"
+            elif latest_macd_hist > 0 and latest_macd_hist < prev_macd_hist:
+                macd_hist_sentiment = "Decreasing Positive"
+            elif latest_macd_hist < 0 and latest_macd_hist < prev_macd_hist:
+                macd_hist_sentiment = "Increasing Negative"
+            elif latest_macd_hist < 0 and latest_macd_hist > prev_macd_hist:
+                macd_hist_sentiment = "Decreasing Negative"
+        
+        calculated_indicator_values['MACD_Hist'] = {'value': latest_macd_hist, 'sentiment': macd_hist_sentiment}
 
         # --- KDJ Calculations & Sentiment ---
         high_prices = stock_df['high'].tolist()
@@ -290,10 +344,68 @@ class AnalysisEngine:
         latest_k = k_line[-1] if k_line and len(k_line) == len(close_prices) else None
         latest_d = d_line[-1] if d_line and len(d_line) == len(close_prices) else None
         latest_j = j_line[-1] if j_line and len(j_line) == len(close_prices) else None
-        calculated_indicator_values['KDJ_K'] = {'value': latest_k, 'sentiment': 'N/A'}
-        calculated_indicator_values['KDJ_D'] = {'value': latest_d, 'sentiment': 'N/A'}
-        calculated_indicator_values['KDJ_J'] = {'value': latest_j, 'sentiment': 'N/A'}
 
+        # KDJ Thresholds
+        oversold_threshold = 20
+        overbought_threshold = 80
+        j_oversold_threshold = 0
+        j_overbought_threshold = 100
+
+        # K Line Sentiment
+        k_sentiment = "Neutral"
+        if latest_k is not None:
+            if latest_k < oversold_threshold:
+                k_sentiment = f"Oversold (<{oversold_threshold})"
+            elif latest_k > overbought_threshold:
+                k_sentiment = f"Overbought (>{overbought_threshold})"
+
+        # KDJ Crossover (Primary Signal for K relative to D)
+        prev_k = k_line[-2] if len(k_line) > 1 and len(k_line) == len(close_prices) else None
+        prev_d = d_line[-2] if len(d_line) > 1 and len(d_line) == len(close_prices) else None
+
+        if all(val is not None for val in [latest_k, latest_d, prev_k, prev_d]):
+            if prev_k < prev_d and latest_k > latest_d:
+                k_sentiment = "Golden Cross (K > D)"
+                if latest_k < oversold_threshold + 10:  # e.g. below 30
+                    k_sentiment += " - Low"
+            elif prev_k > prev_d and latest_k < latest_d:
+                k_sentiment = "Death Cross (K < D)"
+                if latest_k > overbought_threshold - 10:  # e.g. above 70
+                    k_sentiment += " - High"
+            # If no crossover, the initial k_sentiment (Oversold/Overbought/Neutral) might still be valid
+            # Or, if it was Neutral, refine based on K vs D
+            elif k_sentiment == "Neutral": # only if not already oversold/overbought
+                if latest_k > latest_d: k_sentiment = "K > D"
+                elif latest_k < latest_d: k_sentiment = "K < D"
+        elif latest_k is not None and latest_d is not None and k_sentiment == "Neutral": # Fallback if no previous data and not already OS/OB
+            if latest_k > latest_d: k_sentiment = "K > D"
+            elif latest_k < latest_d: k_sentiment = "K < D"
+        
+        calculated_indicator_values['KDJ_K'] = {'value': latest_k, 'sentiment': k_sentiment}
+
+        # D Line Sentiment
+        d_sentiment = "Neutral"
+        if latest_d is not None:
+            if latest_d < oversold_threshold:
+                d_sentiment = f"Oversold (<{oversold_threshold})"
+            elif latest_d > overbought_threshold:
+                d_sentiment = f"Overbought (>{overbought_threshold})"
+            else:
+                d_sentiment = "Mid-range"
+        calculated_indicator_values['KDJ_D'] = {'value': latest_d, 'sentiment': d_sentiment}
+
+        # J Line Sentiment
+        j_sentiment = "Neutral"
+        if latest_j is not None:
+            if latest_j < j_oversold_threshold:
+                j_sentiment = f"Very Oversold (<{j_oversold_threshold})"
+            elif latest_j > j_overbought_threshold:
+                j_sentiment = f"Very Overbought (>{j_overbought_threshold})"
+            elif latest_j < oversold_threshold:
+                j_sentiment = f"Oversold Zone (<{oversold_threshold})"
+            elif latest_j > overbought_threshold:
+                j_sentiment = f"Overbought Zone (>{overbought_threshold})"
+        calculated_indicator_values['KDJ_J'] = {'value': latest_j, 'sentiment': j_sentiment}
 
         # --- Populate historical_indicators SECTION ---
         # This needs to be done BEFORE checking essential_indicators_missing for strategy,
@@ -538,5 +650,25 @@ if __name__ == '__main__':
             print(f"Sample historical OHLCV (first record): {result['historical_indicators']['ohlcv'][0] if result['historical_indicators']['ohlcv'] else 'N/A'}")
             if len(result['historical_indicators']['ohlcv']) > 1:
                  print(f"Sample historical OHLCV (last record): {result['historical_indicators']['ohlcv'][-1] if result['historical_indicators']['ohlcv'] else 'N/A'}")
+        
+        # --- Print MACD and KDJ Sentiments ---
+        print(f"--- Indicator Sentiments for Timeframe: {tf} ---")
+        indicators_to_check = ['MACD_Line', 'MACD_Signal', 'MACD_Hist', 'KDJ_K', 'KDJ_D', 'KDJ_J']
+        indicator_values = result.get('indicator_values')
+        if indicator_values:
+            for indicator_key in indicators_to_check:
+                if indicator_key in indicator_values:
+                    value = indicator_values[indicator_key].get('value')
+                    sentiment = indicator_values[indicator_key].get('sentiment')
+                    # The format_val function is defined within generate_signals, so we can't use it directly here.
+                    # We'll do a simple round or N/A for display.
+                    display_value = round(value, 2) if isinstance(value, (int, float)) else "N/A"
+                    print(f"{indicator_key}: Value={display_value}, Sentiment='{sentiment}'")
+                else:
+                    print(f"{indicator_key}: Not found in indicator_values")
+        else:
+            print("No indicator_values found in result.")
+        # --- End Print MACD and KDJ Sentiments ---
+            
         print(f"Explanation for {tf}:\n{result.get('explanation')}\n---")
     print("\n--- End of Tests ---")
