@@ -1,6 +1,7 @@
 import argparse
 import textwrap 
 import re 
+import pandas as pd # Added import
 from tabulate import tabulate 
 
 try:
@@ -177,52 +178,79 @@ def print_bb_table(historical_data: dict, num_periods: int = 20):
         return
     print(tabulate(table_rows, headers=headers, tablefmt="fancy_grid"))
 
-def print_individual_fund_flow_table(stock_code: str, num_days: int = 20):
-    fund_flow_list = fetch_stock_fund_flow(stock_code, num_days=num_days)
+def print_individual_fund_flow_table(stock_code: str, stock_data: list, num_days: int = 20):
+    # stock_data parameter is added for future use, current logic still fetches directly.
+    # stock_data parameter is added for future use, current logic still fetches directly.
+    fund_flow_list_original = fetch_stock_fund_flow(stock_code, num_days=num_days)
 
-    if not fund_flow_list:
+    if not fund_flow_list_original:
         # Print a generic title or just the message if no data
         print(f"\n--- Stock Individual Fund Flow Data (Last {num_days} Days) ---")
         print("No fund flow data available or error fetching data.")
         return
 
-    # Determine latest date from the last record (since data_provider now returns oldest first, then tail)
-    latest_date_str = fund_flow_list[-1].get('date', 'Unknown Date')
+    # Convert to DataFrames and merge
+    fund_flow_df = pd.DataFrame(fund_flow_list_original)
+    stock_data_df = pd.DataFrame(stock_data)
+    
+    # Select relevant columns from stock_data_df and ensure 'date' is present
+    if 'date' in stock_data_df.columns:
+        stock_data_df_selected = stock_data_df[['date', 'close', 'change_pct']]
+        # Merge fund flow data with stock data
+        # We use a left merge to keep all fund flow entries and add stock data if dates match
+        merged_df = pd.merge(fund_flow_df, stock_data_df_selected, on='date', how='left')
+    else: # If stock_data_df doesn't have 'date', we can't merge; use original fund_flow_df
+        merged_df = fund_flow_df 
+        # Add empty columns for 'close' and 'change_pct' if they don't exist after non-merge
+        if 'close' not in merged_df.columns: merged_df['close'] = pd.NA
+        if 'change_pct' not in merged_df.columns: merged_df['change_pct'] = pd.NA
+
+
+    display_list = merged_df.to_dict(orient='records')
+
+    # Ensure merged_df is sorted by date if it's not already guaranteed
+    # The left DataFrame (fund_flow_df) should be chronological from data_provider.
+    # A left merge preserves the order of the left keys. So, sorting might be redundant
+    # but can be kept for safety if there's any doubt.
+    # Let's assume fund_flow_df is already sorted chronologically.
+    # If explicit sort is needed: merged_df.sort_values(by='date', inplace=True)
+    
+    display_list = merged_df.to_dict(orient='records')
+
+    # Determine latest date from the last record of the (chronologically sorted) list
+    latest_date_str = display_list[-1].get('date', 'Unknown Date') if display_list else 'Unknown Date'
     print(f"\n--- Stock Individual Fund Flow Data (Last {num_days} Days - Data up to {latest_date_str}) ---")
 
     headers = [
-        'date', 'main_net_inflow_amount', 'main_net_inflow_pct',
-        'super_large_net_inflow_amount', 'super_large_net_inflow_pct',
-        'large_net_inflow_amount', 'large_net_inflow_pct',
-        'medium_net_inflow_amount', 'medium_net_inflow_pct',
-        'small_net_inflow_amount', 'small_net_inflow_pct'
+        '日期', '收盘价', '涨跌幅', 
+        '主力净流入-净额', '主力净流入-净占比'
     ]
     
     table_rows = []
-    # Reverse the list for display so newest data is at the top of the table
-    table_display_list = fund_flow_list[::-1] 
-    for item in table_display_list:
+    # Display data in chronological order (oldest first)
+    # Removed: table_display_list = display_list[::-1] 
+    for item in display_list: # Iterate directly over display_list
         row = []
         row.append(item.get('date', 'N/A'))
         
+        close_price_val = item.get('close')
+        row.append(f"{close_price_val:.2f}" if isinstance(close_price_val, (int, float)) else 'N/A')
+        
+        change_pct_val = item.get('change_pct')
+        row.append(f"{change_pct_val:.2f}%" if isinstance(change_pct_val, (int, float)) else 'N/A')
+        
         # Helper for formatting amount columns
-        def format_amount(value):
+        def format_amount(value): # This helper is fine
             return f"{value:,.2f}" if isinstance(value, (int, float)) else 'N/A'
         
         # Helper for formatting percentage columns
-        def format_percentage(value):
+        def format_percentage(value): # This helper is fine
             return f"{value:.2f}%" if isinstance(value, (int, float)) else 'N/A'
 
         row.append(format_amount(item.get('main_net_inflow_amount')))
         row.append(format_percentage(item.get('main_net_inflow_pct')))
-        row.append(format_amount(item.get('super_large_net_inflow_amount')))
-        row.append(format_percentage(item.get('super_large_net_inflow_pct')))
-        row.append(format_amount(item.get('large_net_inflow_amount')))
-        row.append(format_percentage(item.get('large_net_inflow_pct')))
-        row.append(format_amount(item.get('medium_net_inflow_amount')))
-        row.append(format_percentage(item.get('medium_net_inflow_pct')))
-        row.append(format_amount(item.get('small_net_inflow_amount')))
-        row.append(format_percentage(item.get('small_net_inflow_pct')))
+        
+        # Removed other fund flow columns from display
         
         table_rows.append(row)
 
@@ -410,12 +438,14 @@ def main():
         print_rsi_table(historical_data_from_result)
         print_bb_table(historical_data_from_result)
         # Call the new fund flow table function
-        print_individual_fund_flow_table(clean_stock_code) # Using clean_stock_code from main
+        # Pass the main stock_data list to the function
+        print_individual_fund_flow_table(clean_stock_code, stock_data) 
     else:
         print("\n--- Historical Data Tables ---") # Add a title even if data is missing
         print("Historical indicator data not available.")
         # Still try to print individual fund flow if historical_data_from_result (from analysis) is missing
-        print_individual_fund_flow_table(clean_stock_code)
+        # Pass the main stock_data list to the function
+        print_individual_fund_flow_table(clean_stock_code, stock_data)
 
 
     print("\n------------------------------------------------------------")
