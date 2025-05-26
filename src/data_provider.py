@@ -221,10 +221,17 @@ def fetch_stock_fund_flow(stock_code: str, num_days: int = 20):
 
         # Rename columns
         column_mapping = {
-            '日期': 'date', # Assuming '日期' is the date column
-            '主力净流入-净额': 'net_inflow',
-            '主力净流入-净占比': 'net_inflow_pct',
-            # Add other columns if needed, e.g., '超大单净流入-净额', '大单净流入-净额', etc.
+            '日期': 'date',
+            '主力净流入-净额': 'main_net_inflow_amount',
+            '主力净流入-净占比': 'main_net_inflow_pct',
+            '超大单净流入-净额': 'super_large_net_inflow_amount',
+            '超大单净流入-净占比': 'super_large_net_inflow_pct',
+            '大单净流入-净额': 'large_net_inflow_amount',
+            '大单净流入-净占比': 'large_net_inflow_pct',
+            '中单净流入-净额': 'medium_net_inflow_amount',
+            '中单净流入-净占比': 'medium_net_inflow_pct',
+            '小单净流入-净额': 'small_net_inflow_amount',
+            '小单净流入-净占比': 'small_net_inflow_pct'
         }
         fund_flow_df.rename(columns=column_mapping, inplace=True)
         
@@ -239,18 +246,28 @@ def fetch_stock_fund_flow(stock_code: str, num_days: int = 20):
             # If date is critical and missing, might return [] or handle as per requirements
             # For now, we'll try to proceed if other key columns are there, but usually date is essential.
 
-        # Select relevant columns. Ensure 'date' is included if available.
-        relevant_fund_flow_columns = ['date', 'net_inflow', 'net_inflow_pct']
+        # Define all expected English column names after mapping
+        relevant_fund_flow_columns = [
+            'date', 'main_net_inflow_amount', 'main_net_inflow_pct',
+            'super_large_net_inflow_amount', 'super_large_net_inflow_pct',
+            'large_net_inflow_amount', 'large_net_inflow_pct',
+            'medium_net_inflow_amount', 'medium_net_inflow_pct',
+            'small_net_inflow_amount', 'small_net_inflow_pct'
+        ]
         
-        # Check if all relevant columns are present
+        # Filter the DataFrame to only include columns that actually exist after renaming
         actual_columns_present = [col for col in relevant_fund_flow_columns if col in fund_flow_df.columns]
-        if not all(col in actual_columns_present for col in ['net_inflow', 'net_inflow_pct']): # Date is handled above
-            missing_data_cols = [col for col in ['net_inflow', 'net_inflow_pct'] if col not in fund_flow_df.columns]
-            print(f"Warning: Key fund flow data columns {missing_data_cols} are missing for {stock_code}. Returning empty list.")
+        
+        # Check if the primary 'main force' data columns are present. If not, the data is not useful.
+        # Also ensure 'date' is present.
+        essential_columns = ['date', 'main_net_inflow_amount', 'main_net_inflow_pct']
+        if not all(col in actual_columns_present for col in essential_columns):
+            missing_essential_cols = [col for col in essential_columns if col not in actual_columns_present]
+            print(f"Warning: Essential fund flow data columns {missing_essential_cols} are missing for {stock_code} after mapping. Returning empty list.")
             return []
 
-
         # Get the last num_days of data (head() because akshare returns latest first)
+        # Use only the columns that are actually present in the DataFrame
         fund_flow_df_selected_days = fund_flow_df[actual_columns_present].head(num_days)
         
         # Convert to list of dictionaries

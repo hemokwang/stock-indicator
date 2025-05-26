@@ -4,11 +4,11 @@ import re
 from tabulate import tabulate 
 
 try:
-    from .data_provider import fetch_stock_data, fetch_stock_basic_info
+    from .data_provider import fetch_stock_data, fetch_stock_basic_info, fetch_stock_fund_flow
     from .analysis_engine import AnalysisEngine
     from .strategy_configs import STRATEGY_CONFIGS 
 except ImportError: 
-    from data_provider import fetch_stock_data, fetch_stock_basic_info
+    from data_provider import fetch_stock_data, fetch_stock_basic_info, fetch_stock_fund_flow
     from analysis_engine import AnalysisEngine
     from strategy_configs import STRATEGY_CONFIGS
 
@@ -87,7 +87,7 @@ def print_ohlcv_table(ohlcv_data: list, num_periods: int = 20):
     display_data = ohlcv_data[-num_periods:]
 
     headers = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume', 
-               "涨跌幅", "量比", "主力净流入", "主力净流入占比"]
+               "涨跌幅", "量比"] # Removed "主力净流入", "主力净流入占比"
     table_rows = []
     
     col_alignments = ["left"] + ["right"] * (len(headers) - 1) # Date left, rest right
@@ -116,17 +116,7 @@ def print_ohlcv_table(ohlcv_data: list, num_periods: int = 20):
         else:
             row.append('N/A')
             
-        net_inflow_val = item.get('net_inflow')
-        if isinstance(net_inflow_val, (int, float)):
-            row.append(f"{net_inflow_val:,.2f}")
-        else:
-            row.append('N/A')
-            
-        net_inflow_pct_val = item.get('net_inflow_pct')
-        if isinstance(net_inflow_pct_val, (int, float)):
-            row.append(f"{net_inflow_pct_val:.2f}%")
-        else:
-            row.append('N/A')
+        # Removed net_inflow and net_inflow_pct appending logic
             
         table_rows.append(row)
     
@@ -186,6 +176,57 @@ def print_bb_table(historical_data: dict, num_periods: int = 20):
         print("No data to display for Bollinger Bands.")
         return
     print(tabulate(table_rows, headers=headers, tablefmt="fancy_grid"))
+
+def print_individual_fund_flow_table(stock_code: str, num_days: int = 20):
+    print(f"\n--- Stock Individual Fund Flow Data (Last {num_days} Days) ---")
+    
+    fund_flow_list = fetch_stock_fund_flow(stock_code, num_days=num_days)
+
+    if not fund_flow_list:
+        print("No fund flow data available or error fetching data.")
+        return
+
+    headers = [
+        'date', 'main_net_inflow_amount', 'main_net_inflow_pct',
+        'super_large_net_inflow_amount', 'super_large_net_inflow_pct',
+        'large_net_inflow_amount', 'large_net_inflow_pct',
+        'medium_net_inflow_amount', 'medium_net_inflow_pct',
+        'small_net_inflow_amount', 'small_net_inflow_pct'
+    ]
+    
+    table_rows = []
+    for item in fund_flow_list:
+        row = []
+        row.append(item.get('date', 'N/A'))
+        
+        # Helper for formatting amount columns
+        def format_amount(value):
+            return f"{value:,.2f}" if isinstance(value, (int, float)) else 'N/A'
+        
+        # Helper for formatting percentage columns
+        def format_percentage(value):
+            return f"{value:.2f}%" if isinstance(value, (int, float)) else 'N/A'
+
+        row.append(format_amount(item.get('main_net_inflow_amount')))
+        row.append(format_percentage(item.get('main_net_inflow_pct')))
+        row.append(format_amount(item.get('super_large_net_inflow_amount')))
+        row.append(format_percentage(item.get('super_large_net_inflow_pct')))
+        row.append(format_amount(item.get('large_net_inflow_amount')))
+        row.append(format_percentage(item.get('large_net_inflow_pct')))
+        row.append(format_amount(item.get('medium_net_inflow_amount')))
+        row.append(format_percentage(item.get('medium_net_inflow_pct')))
+        row.append(format_amount(item.get('small_net_inflow_amount')))
+        row.append(format_percentage(item.get('small_net_inflow_pct')))
+        
+        table_rows.append(row)
+
+    if not table_rows:
+        print("No data to display for fund flow.")
+        return
+        
+    col_alignments = ["left"] + ["right"] * (len(headers) - 1)
+    print(tabulate(table_rows, headers=headers, tablefmt="fancy_grid", colalign=col_alignments))
+
 
 def main():
     parser = argparse.ArgumentParser(description="Stock Analysis CLI Tool")
@@ -362,9 +403,14 @@ def main():
         print_ma_table(historical_data_from_result)
         print_rsi_table(historical_data_from_result)
         print_bb_table(historical_data_from_result)
+        # Call the new fund flow table function
+        print_individual_fund_flow_table(clean_stock_code) # Using clean_stock_code from main
     else:
         print("\n--- Historical Data Tables ---") # Add a title even if data is missing
         print("Historical indicator data not available.")
+        # Still try to print individual fund flow if historical_data_from_result (from analysis) is missing
+        print_individual_fund_flow_table(clean_stock_code)
+
 
     print("\n------------------------------------------------------------")
     print(disclaimer_text)

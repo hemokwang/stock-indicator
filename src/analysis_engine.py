@@ -1,7 +1,7 @@
 # src/analysis_engine.py
 import pandas as pd # Import pandas for easier data manipulation
 from .strategy_configs import STRATEGY_CONFIGS
-from .data_provider import fetch_stock_fund_flow # Added import
+# from .data_provider import fetch_stock_fund_flow # Removed import
 from .indicators.moving_average import calculate_moving_average
 from .indicators.rsi import calculate_rsi
 from .indicators import calculate_bollinger_bands # Added
@@ -115,12 +115,11 @@ class AnalysisEngine:
         stock_df['volume_ma5'] = stock_df['volume'].rolling(window=5, min_periods=1).mean()
         stock_df['volume_ratio'] = stock_df.apply(lambda row: row['volume'] / row['volume_ma5'] if row['volume_ma5'] and row['volume_ma5'] != 0 else 'N/A', axis=1)
 
-        # Fetch fund flow data
-        fund_flow_data = []
-        if stock_code: # Only fetch if stock_code is provided
-            fund_flow_data = fetch_stock_fund_flow(stock_code, num_days=N_HISTORICAL_PERIODS + 5) # Fetch a bit more to ensure coverage for N_HISTORICAL_PERIODS dates
-        
-        fund_flow_map = {item['date']: item for item in fund_flow_data}
+        # Removed fund flow data fetching and fund_flow_map creation
+        # fund_flow_data = []
+        # if stock_code: 
+        #     fund_flow_data = fetch_stock_fund_flow(stock_code, num_days=N_HISTORICAL_PERIODS + 5)
+        # fund_flow_map = {item['date']: item for item in fund_flow_data}
 
         # Extract close_prices and dates_series from the DataFrame
         try:
@@ -147,14 +146,13 @@ class AnalysisEngine:
         enriched_historical_ohlcv = []
         for index, row in historical_df_slice.iterrows():
             day_data = row.to_dict()
-            fund_flow_day_data = fund_flow_map.get(day_data['date'], {})
+            # Removed fund_flow_day_data retrieval
+            # fund_flow_day_data = fund_flow_map.get(day_data['date'], {})
             
-            net_inflow = fund_flow_day_data.get('net_inflow', 'N/A')
-            # turnover = day_data.get('turnover', 0.0) # turnover is already in day_data
+            # Removed net_inflow and net_inflow_pct
+            # net_inflow = fund_flow_day_data.get('net_inflow', 'N/A')
             turnover = day_data.get('turnover', 'N/A') # Keep 'N/A' convention if missing
-
-            # Directly use net_inflow_pct from fund_flow_day_data
-            net_inflow_pct = fund_flow_day_data.get('net_inflow_pct', 'N/A')
+            # net_inflow_pct = fund_flow_day_data.get('net_inflow_pct', 'N/A')
             
             enriched_historical_ohlcv.append({
                 'date': day_data['date'],
@@ -166,8 +164,8 @@ class AnalysisEngine:
                 'change_pct': day_data.get('change_pct', 'N/A'), # Already part of stock_df
                 'turnover': turnover, 
                 'volume_ratio': day_data.get('volume_ratio', 'N/A'), # Calculated on stock_df
-                'net_inflow': net_inflow,
-                'net_inflow_pct': net_inflow_pct # Use the directly fetched value
+                # 'net_inflow': net_inflow, # Removed
+                # 'net_inflow_pct': net_inflow_pct # Removed
             })
         
         historical_ohlcv = enriched_historical_ohlcv # This is what gets passed to populated_historical_indicators
