@@ -88,7 +88,7 @@ def print_ohlcv_table(ohlcv_data: list, num_periods: int = 20):
     display_data = ohlcv_data[-num_periods:]
 
     headers = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume', 
-               "涨跌幅", "量比"] # Removed "主力净流入", "主力净流入占比"
+               "Change Pct", "Volume Ratio"] # Changed from Chinese
     table_rows = []
     
     col_alignments = ["left"] + ["right"] * (len(headers) - 1) # Date left, rest right
@@ -429,7 +429,41 @@ def main():
     # --- Display Historical Data Tables ---
     historical_data_from_result = analysis_result.get('historical_indicators')
 
+    # Initialize latest_historical_values
+    latest_historical_values = {}
+
     if historical_data_from_result:
+        # Extract Latest MA Values
+        ma_keys = ['MA5', 'MA10', 'MA20']
+        ma_data = historical_data_from_result.get('ma', {})
+        if ma_data:
+            for key in ma_keys:
+                series = ma_data.get(key, [])
+                if series: # Check if series is not None and not empty
+                    latest_value = series[-1].get('value')
+                    latest_historical_values[key] = {'value': latest_value, 'sentiment': 'N/A'}
+
+        # Extract Latest RSI Values
+        rsi_keys = ['RSI6', 'RSI12', 'RSI24']
+        rsi_data = historical_data_from_result.get('rsi', {})
+        if rsi_data:
+            for key in rsi_keys:
+                series = rsi_data.get(key, [])
+                if series:
+                    latest_value = series[-1].get('value')
+                    latest_historical_values[key] = {'value': latest_value, 'sentiment': 'N/A'}
+
+        # Extract Latest Bollinger Bands Values
+        bb_keys = ['BB_Upper', 'BB_Middle', 'BB_Lower']
+        bb_data = historical_data_from_result.get('bb', {})
+        if bb_data:
+            for key in bb_keys:
+                series = bb_data.get(key, [])
+                if series:
+                    latest_value = series[-1].get('value')
+                    latest_historical_values[key] = {'value': latest_value, 'sentiment': 'N/A'}
+        
+        # The following code will print the tables using historical_data_from_result
         # The num_periods=20 is default in functions, but can be passed if needed.
         # ohlcv_data itself is already the last 20 (or less if total data < 20)
         # from analysis_engine.
