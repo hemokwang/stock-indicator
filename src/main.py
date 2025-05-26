@@ -178,13 +178,17 @@ def print_bb_table(historical_data: dict, num_periods: int = 20):
     print(tabulate(table_rows, headers=headers, tablefmt="fancy_grid"))
 
 def print_individual_fund_flow_table(stock_code: str, num_days: int = 20):
-    print(f"\n--- Stock Individual Fund Flow Data (Last {num_days} Days) ---")
-    
     fund_flow_list = fetch_stock_fund_flow(stock_code, num_days=num_days)
 
     if not fund_flow_list:
+        # Print a generic title or just the message if no data
+        print(f"\n--- Stock Individual Fund Flow Data (Last {num_days} Days) ---")
         print("No fund flow data available or error fetching data.")
         return
+
+    # Determine latest date from the first record
+    latest_date_str = fund_flow_list[0].get('date', 'Unknown Date')
+    print(f"\n--- Stock Individual Fund Flow Data (Last {num_days} Days - Data up to {latest_date_str}) ---")
 
     headers = [
         'date', 'main_net_inflow_amount', 'main_net_inflow_pct',

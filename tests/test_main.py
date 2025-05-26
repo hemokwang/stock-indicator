@@ -14,7 +14,10 @@ except ImportError as e:
     # This can happen in some CI/testing setups
     if 'src' not in sys.path:
          sys.path.insert(0, os.path.join(project_root, 'src'))
-    from src.main import _prepare_indicator_table_data
+    from src.main import _prepare_indicator_table_data, print_individual_fund_flow_table
+    # src.data_provider.fetch_stock_fund_flow is not directly used in test_main.py, 
+    # but we patch it where it's called in src.main
+from unittest.mock import patch, call
 
 
 class TestMainHelperFunctions(unittest.TestCase):
@@ -197,6 +200,67 @@ class TestMainHelperFunctions(unittest.TestCase):
         ]
         self.assertEqual(headers, expected_headers)
         self.assertEqual(table_rows, expected_rows)
+
+class TestMainTableFunctions(unittest.TestCase):
+
+    @patch('src.main.tabulate') # Innermost mock
+    @patch('src.main.fetch_stock_fund_flow') # Middle mock
+    @patch('builtins.print') # Outermost mock
+    def test_print_individual_fund_flow_table_with_data(self, mock_print, mock_fetch_flow, mock_tabulate):
+        mock_stock_code = "000001"
+        num_days_to_fetch = 1
+        latest_date_expected = '2024-12-19'
+
+        mock_fund_flow_data = [{
+            'date': latest_date_expected, 
+            'main_net_inflow_amount': 12345.67, 'main_net_inflow_pct': 5.55,
+            'super_large_net_inflow_amount': 1000.0, 'super_large_net_inflow_pct': 1.1,
+            'large_net_inflow_amount': 2000.0, 'large_net_inflow_pct': 2.2,
+            'medium_net_inflow_amount': 3000.0, 'medium_net_inflow_pct': 3.3,
+            'small_net_inflow_amount': 4000.0, 'small_net_inflow_pct': 4.4
+        }]
+        mock_fetch_flow.return_value = mock_fund_flow_data
+
+        print_individual_fund_flow_table(mock_stock_code, num_days=num_days_to_fetch)
+
+        mock_fetch_flow.assert_called_once_with(mock_stock_code, num_days=num_days_to_fetch)
+        
+        # Check for the title with the specific date
+        expected_title_with_date = f"\n--- Stock Individual Fund Flow Data (Last {num_days_to_fetch} Days - Data up to {latest_date_expected}) ---"
+        
+        # Iterate through all calls to print and check if any match the expected title
+        called_with_expected_title = False
+        for print_call_args in mock_print.call_args_list:
+            args, kwargs = print_call_args
+            if args and args[0] == expected_title_with_date:
+                called_with_expected_title = True
+                break
+        self.assertTrue(called_with_expected_title, f"Expected title '{expected_title_with_date}' not found in print calls.")
+
+        mock_tabulate.assert_called_once() # Ensure tabulate was called to render the table
+
+    @patch('src.main.tabulate') # Innermost mock
+    @patch('src.main.fetch_stock_fund_flow') # Middle mock
+    @patch('builtins.print') # Outermost mock
+    def test_print_individual_fund_flow_table_no_data(self, mock_print, mock_fetch_flow, mock_tabulate):
+        mock_stock_code = "000002"
+        num_days_to_fetch = 5
+        mock_fetch_flow.return_value = [] # No data returned
+
+        print_individual_fund_flow_table(mock_stock_code, num_days=num_days_to_fetch)
+
+        mock_fetch_flow.assert_called_once_with(mock_stock_code, num_days=num_days_to_fetch)
+
+        # Check for the generic title and the "no data" message
+        expected_generic_title = f"\n--- Stock Individual Fund Flow Data (Last {num_days_to_fetch} Days) ---"
+        expected_no_data_message = "No fund flow data available or error fetching data."
+        
+        print_calls_as_text = [c[0][0] for c in mock_print.call_args_list if c[0]] # Get first arg of each call
+
+        self.assertIn(expected_generic_title, print_calls_as_text, "Generic title not found.")
+        self.assertIn(expected_no_data_message, print_calls_as_text, "'No data' message not found.")
+        
+        mock_tabulate.assert_not_called() # Ensure tabulate was NOT called
 
 if __name__ == '__main__':
     unittest.main()
