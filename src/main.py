@@ -78,7 +78,7 @@ def _prepare_indicator_table_data(ohlcv_data_for_dates: list, indicator_group_da
 
 # --- Functions to print historical data tables ---
 def print_ohlcv_table(ohlcv_data: list, num_periods: int = 20):
-    print("\n--- Recent 20-Day OHLCV ---")
+    print("\n--- Recent 20-Day OHLCV & Fund Flow Data ---") # Updated title
     if not ohlcv_data:
         print("Historical OHLCV data not available or empty.")
         return
@@ -86,23 +86,55 @@ def print_ohlcv_table(ohlcv_data: list, num_periods: int = 20):
     # Take the last num_periods, ohlcv_data should already be the last 20 from analysis_engine
     display_data = ohlcv_data[-num_periods:]
 
-    headers = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
+    headers = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume', 
+               "涨跌幅", "量比", "主力净流入", "主力净流入占比"]
     table_rows = []
+    
+    col_alignments = ["left"] + ["right"] * (len(headers) - 1) # Date left, rest right
+
     for item in display_data:
+        # Existing data
         row = [
             item.get('date', 'N/A'),
             f"{item.get('open', 0.0):.2f}",
             f"{item.get('high', 0.0):.2f}",
             f"{item.get('low', 0.0):.2f}",
             f"{item.get('close', 0.0):.2f}",
-            f"{item.get('volume', 0):,}" # Format volume with comma for thousands
+            f"{item.get('volume', 0):,}"
         ]
+        
+        # New data fields
+        change_pct_val = item.get('change_pct')
+        if isinstance(change_pct_val, (int, float)):
+            row.append(f"{change_pct_val:.2f}%")
+        else:
+            row.append('N/A')
+            
+        volume_ratio_val = item.get('volume_ratio')
+        if isinstance(volume_ratio_val, (int, float)):
+            row.append(f"{volume_ratio_val:.2f}")
+        else:
+            row.append('N/A')
+            
+        net_inflow_val = item.get('net_inflow')
+        if isinstance(net_inflow_val, (int, float)):
+            row.append(f"{net_inflow_val:,.2f}")
+        else:
+            row.append('N/A')
+            
+        net_inflow_pct_val = item.get('net_inflow_pct')
+        if isinstance(net_inflow_pct_val, (int, float)):
+            row.append(f"{net_inflow_pct_val:.2f}%")
+        else:
+            row.append('N/A')
+            
         table_rows.append(row)
     
     if not table_rows:
         print("No data to display for OHLCV.")
         return
-    print(tabulate(table_rows, headers=headers, tablefmt="fancy_grid", floatfmt=".2f"))
+    # Using colalign instead of floatfmt due to mixed types (N/A strings and formatted numbers)
+    print(tabulate(table_rows, headers=headers, tablefmt="fancy_grid", colalign=col_alignments))
 
 def print_ma_table(historical_data: dict, num_periods: int = 20):
     print("\n--- Recent 20-Day Moving Averages (MA5, MA10, MA20) ---")
@@ -188,7 +220,10 @@ def main():
         print(message); print("="*60); print(disclaimer_text); print("="*60); return
 
     engine = AnalysisEngine()
-    analysis_result = engine.generate_signals(stock_data, args.timeframe) 
+    # Pass stock_code to generate_signals
+    analysis_result = engine.generate_signals(stock_code=clean_stock_code, 
+                                              stock_data=stock_data, 
+                                              timeframe=args.timeframe) 
 
     date_of_latest_data_raw = str(stock_data[-1].get('date', 'N/A')) if stock_data else "N/A"
     latest_closing_price_val = analysis_result.get('latest_close')
@@ -314,27 +349,7 @@ def main():
     else: 
         print("Indicator Values: Not applicable or error in processing.")
 
-    print("\n--- Indicator Overview ---")
-    indicator_data_table3_padded = []
-    if indicator_values_from_engine and str(analysis_result.get('outlook', '')).strip() not in ['CONFIG_ERROR', 'DATA_FORMAT_ERROR', 'NO_DATA', 'ERROR']:
-        for key, item_dict in indicator_values_from_engine.items():
-            key_str = re.sub(r'^\s+|\s+$', '', str(key))
-            value_str = re.sub(r'^\s+|\s+$', '', str(item_dict.get('value', 'N/A'))) 
-            sentiment_str = re.sub(r'^\s+|\s+$', '', str(item_dict.get('sentiment', 'N/A')))
-            
-            # Apply direct f-string padding with new widths for Table 3
-            indicator_name_padded = f"{key_str:<{TABLE3_COL1_INDICATOR_WIDTH}}"
-            value_padded = f"{value_str:<{TABLE3_COL2_VALUE_WIDTH}}" # Uses new width
-            sentiment_padded = f"{sentiment_str:<{TABLE3_COL3_SIGNAL_WIDTH}}"
-            
-            indicator_data_table3_padded.append([indicator_name_padded, value_padded, sentiment_padded])
-    
-    if indicator_data_table3_padded:
-        print(tabulate(indicator_data_table3_padded, headers=headers3, tablefmt="fancy_grid", colalign=("left", "left", "left")))
-    elif str(analysis_result.get('outlook', '')).strip() not in ['CONFIG_ERROR', 'DATA_FORMAT_ERROR', 'NO_DATA', 'ERROR', 'INSUFFICIENT_DATA']:
-        print("Indicator Values: Not available for this outlook.")
-    else: 
-        print("Indicator Values: Not applicable or error in processing.")
+    # The duplicate "Indicator Overview" table was here and has been removed.
 
     # --- Display Historical Data Tables ---
     historical_data_from_result = analysis_result.get('historical_indicators')

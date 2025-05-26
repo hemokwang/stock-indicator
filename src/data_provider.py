@@ -48,10 +48,10 @@ def fetch_stock_data(stock_code: str, data_type: str = 'daily', start_date: str 
             '最低': 'low',
             '收盘': 'close',
             '成交量': 'volume',
+            '成交额': 'turnover',
+            '涨跌幅': 'change_pct',
             # Add other potential mappings if needed:
-            # '成交额': 'turnover',
             # '振幅': 'amplitude',
-            # '涨跌幅': 'change_pct',
             # '涨跌额': 'change_amt',
             # '换手率': 'turnover_rate'
         }
@@ -67,7 +67,7 @@ def fetch_stock_data(stock_code: str, data_type: str = 'daily', start_date: str 
 
         # Select relevant columns and convert to list of dicts
         # Ensure all necessary columns exist after renaming, otherwise .to_dict will fail or have missing keys.
-        relevant_columns = ['date', 'open', 'high', 'low', 'close', 'volume']
+        relevant_columns = ['date', 'open', 'high', 'low', 'close', 'volume', 'turnover', 'change_pct']
         
         # Check if all relevant columns are present
         missing_cols = [col for col in relevant_columns if col not in stock_hist_df.columns]
@@ -81,11 +81,15 @@ def fetch_stock_data(stock_code: str, data_type: str = 'daily', start_date: str 
         # For example, if 'close' is NaN, that row is not very useful.
         # For this specific list of columns, ensure they are present before trying to dropna on them.
         final_columns_to_use = [col for col in relevant_columns if col in stock_hist_df.columns]
-        if not all(col in stock_hist_df.columns for col in ['date', 'open', 'high', 'low', 'close', 'volume']):
-             print(f"Essential data columns missing for {stock_code}. Cannot process.")
+        # Ensure essential columns for price data are present
+        essential_price_columns = ['date', 'open', 'high', 'low', 'close', 'volume']
+        if not all(col in stock_hist_df.columns for col in essential_price_columns):
+             print(f"Essential price data columns missing for {stock_code} (expected {essential_price_columns}). Cannot process.")
              return []
 
-        data_list = stock_hist_df[final_columns_to_use].dropna(subset=['open', 'high', 'low', 'close', 'volume']).to_dict(orient='records')
+        # 'turnover' and 'change_pct' are desirable but might not always be present, handle their absence gracefully.
+        # Data cleaning: drop rows if essential price columns have NaNs
+        data_list = stock_hist_df[final_columns_to_use].dropna(subset=essential_price_columns).to_dict(orient='records')
         
         print(f"Successfully fetched and processed {len(data_list)} records for {stock_code} from {start_date} to {end_date}.")
         return data_list
@@ -186,3 +190,168 @@ if __name__ == '__main__':
         print(f"Correctly handled invalid code 999999 for basic info. Result: {info_invalid_basic}")
     else:
         print(f"Unexpectedly found info for invalid code 999999: {info_invalid_basic}")
+
+
+def fetch_stock_fund_flow(stock_code: str, num_days: int = 20):
+    """
+    Fetches stock fund flow data for a given stock code.
+    :param stock_code: Stock code (e.g., "000001", "600519").
+    :param num_days: Number of recent days of fund flow data to retrieve. Defaults to 20.
+    :return: List of dictionaries with fund flow data, or empty list if error.
+    """
+    print(f"Fetching fund flow data for {stock_code} for the last {num_days} days...")
+
+    # Determine market based on stock_code prefix
+    if stock_code.startswith('6'):
+        market = 'sh'
+    elif stock_code.startswith('0') or stock_code.startswith('3'):
+        market = 'sz'
+    else:
+        print(f"Invalid stock code prefix for {stock_code}. Cannot determine market (sh/sz).")
+        return []
+
+    try:
+        # Fetch fund flow data using akshare
+        # stock_individual_fund_flow returns data with the latest day first.
+        fund_flow_df = akshare.stock_individual_fund_flow(stock=stock_code, market=market)
+
+        if fund_flow_df.empty:
+            print(f"No fund flow data returned for {stock_code} (market {market}).")
+            return []
+
+        # Rename columns
+        column_mapping = {
+            '日期': 'date', # Assuming '日期' is the date column
+            '主力净流入-净额': 'net_inflow',
+            '主力净流入-净占比': 'net_inflow_pct',
+            # Add other columns if needed, e.g., '超大单净流入-净额', '大单净流入-净额', etc.
+        }
+        fund_flow_df.rename(columns=column_mapping, inplace=True)
+        
+        # Convert 'date' column to 'YYYY-MM-DD' string format if it's not already
+        if 'date' in fund_flow_df.columns:
+            if isinstance(fund_flow_df['date'].iloc[0], pd.Timestamp):
+                 fund_flow_df['date'] = fund_flow_df['date'].dt.strftime('%Y-%m-%d')
+            else: # If it's some other format, try to convert robustly
+                 fund_flow_df['date'] = pd.to_datetime(fund_flow_df['date']).dt.strftime('%Y-%m-%d')
+        else:
+            print(f"Warning: '日期' column not found in fund flow data for {stock_code}.")
+            # If date is critical and missing, might return [] or handle as per requirements
+            # For now, we'll try to proceed if other key columns are there, but usually date is essential.
+
+        # Select relevant columns. Ensure 'date' is included if available.
+        relevant_fund_flow_columns = ['date', 'net_inflow', 'net_inflow_pct']
+        
+        # Check if all relevant columns are present
+        actual_columns_present = [col for col in relevant_fund_flow_columns if col in fund_flow_df.columns]
+        if not all(col in actual_columns_present for col in ['net_inflow', 'net_inflow_pct']): # Date is handled above
+            missing_data_cols = [col for col in ['net_inflow', 'net_inflow_pct'] if col not in fund_flow_df.columns]
+            print(f"Warning: Key fund flow data columns {missing_data_cols} are missing for {stock_code}. Returning empty list.")
+            return []
+
+
+        # Get the last num_days of data (head() because akshare returns latest first)
+        fund_flow_df_selected_days = fund_flow_df[actual_columns_present].head(num_days)
+        
+        # Convert to list of dictionaries
+        fund_flow_list = fund_flow_df_selected_days.to_dict(orient='records')
+        
+        print(f"Successfully fetched and processed {len(fund_flow_list)} records of fund flow data for {stock_code}.")
+        return fund_flow_list
+
+    except Exception as e:
+        print(f"Error fetching or processing fund flow data for {stock_code}: {e}")
+        return []
+
+if __name__ == '__main__':
+    print("Running data_provider.py example usage...")
+    
+    # Example: Ping An Bank (000001)
+    # Akshare uses 'YYYYMMDD' for start_date and end_date in stock_zh_a_hist
+    today = datetime.now()
+    one_month_ago = today - timedelta(days=30) # More data for testing turnover/change_pct
+    
+    start_test_date = one_month_ago.strftime('%Y%m%d')
+    end_test_date = today.strftime('%Y%m%d')
+
+    data_pa = fetch_stock_data("000001", start_date=start_test_date, end_date=end_test_date)
+    if data_pa:
+        print(f"Data for 000001 (first 3 records of last month): {data_pa[:3]}")
+        print(f"Data for 000001 (last 3 records of last month): {data_pa[-3:] if len(data_pa) > 2 else data_pa}")
+
+    print("\nFetching data for Kweichow Moutai (600519)...")
+    data_moutai = fetch_stock_data("600519", start_date=start_test_date, end_date=end_test_date)
+    if data_moutai:
+        print(f"Data for 600519 (first 3 records of last month): {data_moutai[:3]}")
+
+    # Invalid code example for fetch_stock_data
+    print("\nFetching data for an invalid code (INVALIDCODE)...")
+    data_invalid = fetch_stock_data("INVALIDCODE", start_date=start_test_date, end_date=end_test_date)
+    if not data_invalid:
+        print("No data for INVALIDCODE as expected.")
+
+    # Test with default dates (last approx 2 years) for fetch_stock_data
+    print("\nFetching data for 000002 (Vanke) with default dates (last 2 years)...")
+    data_vanke_default_dates = fetch_stock_data("000002")
+    if data_vanke_default_dates:
+        print(f"Data for 000002 (first 3 records): {data_vanke_default_dates[:3]}")
+        print(f"Total records for 000002 (last 2 years): {len(data_vanke_default_dates)}")
+    else:
+        print("No data for 000002 with default dates.")
+    
+    # --- Testing fetch_stock_basic_info ---
+    print("\n--- Testing fetch_stock_basic_info ---")
+
+    # Test fetch_stock_basic_info with a valid stock code
+    info1 = fetch_stock_basic_info("000001") # Ping An Bank
+    if info1 and info1.get('name'):
+        print(f"Fetched Info for 000001: Name - {info1['name']}")
+    else:
+        print(f"Failed to fetch or find name for 000001. Result: {info1}")
+
+    # Test with another valid stock code
+    info2 = fetch_stock_basic_info("600519") # Kweichow Moutai
+    if info2 and info2.get('name'):
+        print(f"Fetched Info for 600519: Name - {info2['name']}")
+    else:
+        print(f"Failed to fetch or find name for 600519. Result: {info2}")
+        
+    # Test with an invalid stock code
+    info_invalid_basic = fetch_stock_basic_info("999999") # Invalid code
+    if not info_invalid_basic or not info_invalid_basic.get('name'): # Expect empty dict or dict without 'name'
+        print(f"Correctly handled invalid code 999999 for basic info. Result: {info_invalid_basic}")
+    else:
+        print(f"Unexpectedly found info for invalid code 999999: {info_invalid_basic}")
+
+    # --- Testing fetch_stock_fund_flow ---
+    print("\n--- Testing fetch_stock_fund_flow ---")
+    # Test with a valid SZ stock code
+    fund_flow_pa = fetch_stock_fund_flow("000001", num_days=5)
+    if fund_flow_pa:
+        print(f"Fund flow for 000001 (Ping An Bank, last 5 days): {fund_flow_pa}")
+    else:
+        print(f"No fund flow data for 000001 or error occurred.")
+
+    # Test with a valid SH stock code
+    fund_flow_moutai = fetch_stock_fund_flow("600519", num_days=5)
+    if fund_flow_moutai:
+        print(f"Fund flow for 600519 (Kweichow Moutai, last 5 days): {fund_flow_moutai}")
+    else:
+        print(f"No fund flow data for 600519 or error occurred.")
+        
+    # Test with an invalid stock code for fund flow
+    fund_flow_invalid = fetch_stock_fund_flow("999999", num_days=5)
+    if not fund_flow_invalid:
+        print("Correctly handled invalid code 999999 for fund flow, no data returned.")
+    else:
+        print(f"Unexpectedly found fund flow data for invalid code 999999: {fund_flow_invalid}")
+        
+    # Test with a stock code that might not have fund flow data (e.g., a very new or obscure one if known)
+    # For now, we'll assume 000001 and 600519 are good test cases.
+    # Test edge case for num_days, e.g., num_days=0 or very large num_days
+    # Akshare usually returns all available historical data, so head(0) would be empty, head(large_num) would be all data.
+    fund_flow_pa_0_days = fetch_stock_fund_flow("000001", num_days=0)
+    if not fund_flow_pa_0_days:
+        print(f"Fund flow for 000001 (0 days) is empty as expected.")
+    else:
+        print(f"Fund flow for 000001 (0 days) returned data: {fund_flow_pa_0_days}")

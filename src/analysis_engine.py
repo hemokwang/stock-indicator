@@ -1,6 +1,7 @@
 # src/analysis_engine.py
 import pandas as pd # Import pandas for easier data manipulation
 from .strategy_configs import STRATEGY_CONFIGS
+from .data_provider import fetch_stock_fund_flow # Added import
 from .indicators.moving_average import calculate_moving_average
 from .indicators.rsi import calculate_rsi
 from .indicators import calculate_bollinger_bands # Added
@@ -48,13 +49,16 @@ class AnalysisEngine:
             
         return historical_data[::-1] # Reverse to maintain chronological order
 
-    def generate_signals(self, stock_data: list, timeframe: str):
+    def generate_signals(self, stock_code: str, stock_data: list, timeframe: str): # Added stock_code
         time_horizon_capitalized = timeframe.capitalize() if isinstance(timeframe, str) else "Unknown"
         N_HISTORICAL_PERIODS = 20 # Define the number of historical periods
 
         def format_val(val, precision=2):
             return round(val, precision) if isinstance(val, (int, float)) else "N/A"
 
+        # historical_indicators_default['ohlcv'] is now more complex.
+        # However, historical_ohlcv is built directly, so the default might just indicate structure type.
+        # For now, keeping it simple as it's a fallback.
         historical_indicators_default = {
             'ohlcv': [], 
             'ma': {'MA5': [], 'MA10': [], 'MA20': []},
@@ -72,10 +76,6 @@ class AnalysisEngine:
         if not stock_data:
             error_return_template.update({'outlook':'DATA_FORMAT_ERROR', 'explanation':'No stock data provided or it was empty.'}); return error_return_template
 
-        # Extract dates and OHLCV data early for historical population
-        # Ensure items are dicts and have required keys before trying to access them.
-        # This also helps in validating stock_data structure early on.
-        
         # Validate and extract OHLCV and dates
         validated_stock_data = []
         parse_error_detail = None
@@ -83,42 +83,94 @@ class AnalysisEngine:
             if not isinstance(item, dict):
                 parse_error_detail = f"Item at index {i} is not a dictionary."
                 break
-            required_keys = ['date', 'open', 'high', 'low', 'close', 'volume']
-            missing_keys = [key for key in required_keys if key not in item]
+            # 'turnover' and 'change_pct' are now expected from fetch_stock_data
+            required_keys = ['date', 'open', 'high', 'low', 'close', 'volume', 'turnover', 'change_pct']
+            missing_keys = [key for key in required_keys if key not in item or item[key] is None] # Check for None too
             if missing_keys:
-                parse_error_detail = f"Item at index {i} is missing keys: {', '.join(missing_keys)}."
-                break
-            # Further type validation for each field can be added here if necessary
+                # Allow 'turnover' and 'change_pct' to be sometimes missing from source, will be N/A
+                # But core OHLCV must be present.
+                core_required_keys = ['date', 'open', 'high', 'low', 'close', 'volume']
+                core_missing_keys = [key for key in core_required_keys if key not in item or item[key] is None]
+                if core_missing_keys:
+                    parse_error_detail = f"Item at index {i} is missing core keys: {', '.join(core_missing_keys)}."
+                    break
+                # If only non-core keys are missing, fill them with 'N/A' or 0.0 to allow processing
+                for key in ['turnover', 'change_pct']:
+                    if key not in item or item[key] is None:
+                        item[key] = 0.0 # Default to 0.0 for calculations, will be formatted to N/A if 0.0 is placeholder
             validated_stock_data.append(item)
         
         if parse_error_detail:
             error_return_template.update({'outlook':'DATA_FORMAT_ERROR', 'explanation': parse_error_detail}); return error_return_template
+        
+        if len(validated_stock_data) < N_HISTORICAL_PERIODS: # Need enough data for historical + calculations
+             error_return_template.update({'outlook':'INSUFFICIENT_DATA', 'explanation':f'Not enough data ({len(validated_stock_data)}) for N_HISTORICAL_PERIODS ({N_HISTORICAL_PERIODS}).'}); return error_return_template
 
-        # Extract close_prices and dates from validated_stock_data
+
+        # Convert validated_stock_data to DataFrame for easier calculations
+        stock_df = pd.DataFrame(validated_stock_data)
+        stock_df['date'] = pd.to_datetime(stock_df['date']).dt.strftime('%Y-%m-%d') # Standardize date format
+
+        # Calculate 5-day moving average of volume for Volume Ratio
+        stock_df['volume_ma5'] = stock_df['volume'].rolling(window=5, min_periods=1).mean()
+        stock_df['volume_ratio'] = stock_df.apply(lambda row: row['volume'] / row['volume_ma5'] if row['volume_ma5'] and row['volume_ma5'] != 0 else 'N/A', axis=1)
+
+        # Fetch fund flow data
+        fund_flow_data = []
+        if stock_code: # Only fetch if stock_code is provided
+            fund_flow_data = fetch_stock_fund_flow(stock_code, num_days=N_HISTORICAL_PERIODS + 5) # Fetch a bit more to ensure coverage for N_HISTORICAL_PERIODS dates
+        
+        fund_flow_map = {item['date']: item for item in fund_flow_data}
+
+        # Extract close_prices and dates_series from the DataFrame
         try:
-            close_prices = [item['close'] for item in validated_stock_data]
-            dates_series = [item['date'] for item in validated_stock_data] # For historical data alignment
+            close_prices = stock_df['close'].tolist()
+            dates_series = stock_df['date'].tolist()
             
-            # Further validation on close_prices as before
-            if not close_prices or len(close_prices) < 2: # Min 2 for some indicators, though more for 20-period history
+            if not close_prices or len(close_prices) < 2:
                 error_return_template.update({'outlook':'DATA_FORMAT_ERROR', 'explanation':'Not enough valid close price data (minimum 2 required).'}); return error_return_template
             
-            # Ensure all close prices are numeric or None, and then filter out None for calculations if needed by indicator functions
-            # This step was slightly different before, ensure it's robust
             if not all(isinstance(p, (int, float)) or p is None for p in close_prices):
                  error_return_template.update({'outlook':'DATA_FORMAT_ERROR', 'explanation':"Close prices must be numeric (int/float) or None."}); return error_return_template
 
             latest_close_price = close_prices[-1]
-            if latest_close_price is None: # This check remains important
+            if latest_close_price is None: 
                 error_return_template.update({'outlook':'INSUFFICIENT_DATA', 'explanation':'Latest closing price is None.'}); return error_return_template
         
-        except (TypeError, KeyError) as e: # Catch errors during extraction
+        except (TypeError, KeyError) as e: 
             error_return_template.update({'outlook':'DATA_FORMAT_ERROR', 'explanation':f"Error processing stock data fields: {e}."}); return error_return_template
 
-        # Historical OHLCV data (last N_HISTORICAL_PERIODS)
-        # Take from validated_stock_data to ensure it's clean
-        historical_ohlcv = validated_stock_data[-N_HISTORICAL_PERIODS:]
-
+        # Prepare historical_ohlcv with new fields
+        # Take the last N_HISTORICAL_PERIODS from the DataFrame
+        historical_df_slice = stock_df.iloc[-N_HISTORICAL_PERIODS:].copy()
+        
+        enriched_historical_ohlcv = []
+        for index, row in historical_df_slice.iterrows():
+            day_data = row.to_dict()
+            fund_flow_day_data = fund_flow_map.get(day_data['date'], {})
+            
+            net_inflow = fund_flow_day_data.get('net_inflow', 'N/A')
+            turnover = day_data.get('turnover', 0.0) # Already defaulted to 0.0 if missing
+            
+            net_inflow_pct = 'N/A'
+            if isinstance(net_inflow, (int, float)) and isinstance(turnover, (int, float)) and turnover != 0:
+                net_inflow_pct = (net_inflow / turnover) * 100
+            
+            enriched_historical_ohlcv.append({
+                'date': day_data['date'],
+                'open': day_data['open'],
+                'high': day_data['high'],
+                'low': day_data['low'],
+                'close': day_data['close'],
+                'volume': day_data['volume'],
+                'change_pct': day_data.get('change_pct', 'N/A'), # Already part of stock_df
+                'turnover': turnover, # Already part of stock_df
+                'volume_ratio': day_data.get('volume_ratio', 'N/A'), # Calculated on stock_df
+                'net_inflow': net_inflow,
+                'net_inflow_pct': net_inflow_pct
+            })
+        
+        historical_ohlcv = enriched_historical_ohlcv # This is what gets passed to populated_historical_indicators
 
         if timeframe not in STRATEGY_CONFIGS:
             error_return_template.update({'outlook':'CONFIG_ERROR', 'explanation':f"Invalid timeframe '{timeframe}' specified."}); return error_return_template
@@ -373,20 +425,45 @@ class AnalysisEngine:
 if __name__ == '__main__':
     engine = AnalysisEngine()
     def generate_mock_data(num_points, start_price=50.0, trend='neutral', volatility=0.5):
-        data = []; price = start_price; import random
+        data = []; price = start_price; import random; import datetime
+        base_date = datetime.date(2023, 1, 1)
         for i in range(num_points):
+            date_str = (base_date + datetime.timedelta(days=i)).strftime('%Y-%m-%d')
             if trend == 'bullish': price_change = random.uniform(0, volatility) + 0.05
             elif trend == 'bearish': price_change = random.uniform(-volatility, 0) - 0.05
             else: price_change = random.uniform(-volatility/2, volatility/2)
-            price += price_change; price = max(price, 1.0) 
-            data.append({'date': f'2023-01-{i+1:02d}', 'close': round(price,2)})
+            price += price_change; price = max(price, 1.0)
+            # Add mock data for new fields
+            data.append({
+                'date': date_str, 
+                'open': round(price - random.uniform(0,0.5),2),
+                'high': round(price + random.uniform(0,0.5),2),
+                'low': round(price - random.uniform(0,0.5) - random.uniform(0,0.2),2),
+                'close': round(price,2),
+                'volume': random.randint(10000, 1000000),
+                'turnover': round(random.uniform(1e6, 1e8),2), # Mock turnover
+                'change_pct': round(random.uniform(-5,5),2)   # Mock change_pct
+                })
         return data
+
     print("\n--- Testing AnalysisEngine ---")
-    test_data = generate_mock_data(250)
+    # For testing, we'll use a mock stock_code, as fetch_stock_fund_flow will be called.
+    # In a real scenario, ensure akshare is installed and network access is available if not mocking.
+    mock_stock_code = "000001" # Example stock code for fund flow fetching
+    
+    # Generate more data points to ensure N_HISTORICAL_PERIODS can be sliced and calculations like 5-day MA work.
+    test_data = generate_mock_data(250) # Use at least N_HISTORICAL_PERIODS + few days for MA calculation stability
+
     for tf in ['daily', 'weekly', 'monthly', 'invalid_timeframe']: 
         print(f"\n** Testing Timeframe: {tf} **")
-        result = engine.generate_signals(test_data, tf)
+        # Pass mock_stock_code to generate_signals
+        result = engine.generate_signals(mock_stock_code, test_data, tf)
         print(f"Outlook: {result.get('outlook')}")
         print(f"Description: {result.get('time_horizon_applied')}")
+        # Print historical_ohlcv to check new fields if needed
+        if result.get('historical_indicators') and result['historical_indicators'].get('ohlcv'):
+            print(f"Sample historical OHLCV (first record): {result['historical_indicators']['ohlcv'][0] if result['historical_indicators']['ohlcv'] else 'N/A'}")
+            if len(result['historical_indicators']['ohlcv']) > 1:
+                 print(f"Sample historical OHLCV (last record): {result['historical_indicators']['ohlcv'][-1] if result['historical_indicators']['ohlcv'] else 'N/A'}")
         print(f"Explanation for {tf}:\n{result.get('explanation')}\n---")
     print("\n--- End of Tests ---")
