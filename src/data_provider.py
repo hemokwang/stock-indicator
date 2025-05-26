@@ -212,7 +212,8 @@ def fetch_stock_fund_flow(stock_code: str, num_days: int = 20):
 
     try:
         # Fetch fund flow data using akshare
-        # stock_individual_fund_flow returns data with the latest day first.
+        # stock_individual_fund_flow by default returns data with the oldest day first.
+        # We use .tail() to get the most recent days.
         fund_flow_df = akshare.stock_individual_fund_flow(stock=stock_code, market=market)
 
         if fund_flow_df.empty:
@@ -266,9 +267,9 @@ def fetch_stock_fund_flow(stock_code: str, num_days: int = 20):
             print(f"Warning: Essential fund flow data columns {missing_essential_cols} are missing for {stock_code} after mapping. Returning empty list.")
             return []
 
-        # Get the last num_days of data (head() because akshare returns latest first)
+        # Get the last num_days of data (tail() because akshare returns oldest first, and we want most recent)
         # Use only the columns that are actually present in the DataFrame
-        fund_flow_df_selected_days = fund_flow_df[actual_columns_present].head(num_days)
+        fund_flow_df_selected_days = fund_flow_df[actual_columns_present].tail(num_days)
         
         # Convert to list of dictionaries
         fund_flow_list = fund_flow_df_selected_days.to_dict(orient='records')

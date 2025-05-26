@@ -208,27 +208,36 @@ class TestMainTableFunctions(unittest.TestCase):
     @patch('builtins.print') # Outermost mock
     def test_print_individual_fund_flow_table_with_data(self, mock_print, mock_fetch_flow, mock_tabulate):
         mock_stock_code = "000001"
-        num_days_to_fetch = 1
-        latest_date_expected = '2024-12-19'
+        num_days_to_fetch = 2 # Use at least 2 days to check order
 
-        mock_fund_flow_data = [{
-            'date': latest_date_expected, 
-            'main_net_inflow_amount': 12345.67, 'main_net_inflow_pct': 5.55,
-            'super_large_net_inflow_amount': 1000.0, 'super_large_net_inflow_pct': 1.1,
-            'large_net_inflow_amount': 2000.0, 'large_net_inflow_pct': 2.2,
-            'medium_net_inflow_amount': 3000.0, 'medium_net_inflow_pct': 3.3,
-            'small_net_inflow_amount': 4000.0, 'small_net_inflow_pct': 4.4
-        }]
-        mock_fetch_flow.return_value = mock_fund_flow_data
+        # Mock data: oldest date first, newest date last
+        mock_data_oldest_first = [
+            {
+                'date': '2024-12-18', 'main_net_inflow_amount': 100.0, 'main_net_inflow_pct': 1.0,
+                'super_large_net_inflow_amount': 10.0, 'super_large_net_inflow_pct': 0.1,
+                'large_net_inflow_amount': 20.0, 'large_net_inflow_pct': 0.2,
+                'medium_net_inflow_amount': 30.0, 'medium_net_inflow_pct': 0.3,
+                'small_net_inflow_amount': 40.0, 'small_net_inflow_pct': 0.4
+            },
+            {
+                'date': '2024-12-19', 'main_net_inflow_amount': 200.0, 'main_net_inflow_pct': 2.0,
+                'super_large_net_inflow_amount': 15.0, 'super_large_net_inflow_pct': 0.15,
+                'large_net_inflow_amount': 25.0, 'large_net_inflow_pct': 0.25,
+                'medium_net_inflow_amount': 35.0, 'medium_net_inflow_pct': 0.35,
+                'small_net_inflow_amount': 45.0, 'small_net_inflow_pct': 0.45
+            }
+        ]
+        mock_fetch_flow.return_value = mock_data_oldest_first
+        
+        # The latest date for the title should be from the last item in the fetched list
+        latest_date_expected_for_title = mock_data_oldest_first[-1]['date']
 
         print_individual_fund_flow_table(mock_stock_code, num_days=num_days_to_fetch)
 
         mock_fetch_flow.assert_called_once_with(mock_stock_code, num_days=num_days_to_fetch)
         
-        # Check for the title with the specific date
-        expected_title_with_date = f"\n--- Stock Individual Fund Flow Data (Last {num_days_to_fetch} Days - Data up to {latest_date_expected}) ---"
+        expected_title_with_date = f"\n--- Stock Individual Fund Flow Data (Last {num_days_to_fetch} Days - Data up to {latest_date_expected_for_title}) ---"
         
-        # Iterate through all calls to print and check if any match the expected title
         called_with_expected_title = False
         for print_call_args in mock_print.call_args_list:
             args, kwargs = print_call_args
@@ -237,7 +246,25 @@ class TestMainTableFunctions(unittest.TestCase):
                 break
         self.assertTrue(called_with_expected_title, f"Expected title '{expected_title_with_date}' not found in print calls.")
 
-        mock_tabulate.assert_called_once() # Ensure tabulate was called to render the table
+        mock_tabulate.assert_called_once() 
+        
+        # Assert the order of rows passed to tabulate (newest first)
+        table_rows_passed_to_tabulate = mock_tabulate.call_args[0][0]
+        
+        # Expected formatted values for the newest date (2024-12-19)
+        expected_row_newest = [
+            '2024-12-19', '200.00', '2.00%', '15.00', '0.15%', 
+            '25.00', '0.25%', '35.00', '0.35%', '45.00', '0.45%'
+        ]
+        # Expected formatted values for the older date (2024-12-18)
+        expected_row_older = [
+            '2024-12-18', '100.00', '1.00%', '10.00', '0.10%', 
+            '20.00', '0.20%', '30.00', '0.30%', '40.00', '0.40%'
+        ]
+
+        self.assertEqual(len(table_rows_passed_to_tabulate), 2) # Ensure two rows were passed
+        self.assertEqual(table_rows_passed_to_tabulate[0], expected_row_newest, "First row in tabulate should be the newest data.")
+        self.assertEqual(table_rows_passed_to_tabulate[1], expected_row_older, "Second row in tabulate should be the older data.")
 
     @patch('src.main.tabulate') # Innermost mock
     @patch('src.main.fetch_stock_fund_flow') # Middle mock

@@ -186,8 +186,8 @@ def print_individual_fund_flow_table(stock_code: str, num_days: int = 20):
         print("No fund flow data available or error fetching data.")
         return
 
-    # Determine latest date from the first record
-    latest_date_str = fund_flow_list[0].get('date', 'Unknown Date')
+    # Determine latest date from the last record (since data_provider now returns oldest first, then tail)
+    latest_date_str = fund_flow_list[-1].get('date', 'Unknown Date')
     print(f"\n--- Stock Individual Fund Flow Data (Last {num_days} Days - Data up to {latest_date_str}) ---")
 
     headers = [
@@ -199,7 +199,9 @@ def print_individual_fund_flow_table(stock_code: str, num_days: int = 20):
     ]
     
     table_rows = []
-    for item in fund_flow_list:
+    # Reverse the list for display so newest data is at the top of the table
+    table_display_list = fund_flow_list[::-1] 
+    for item in table_display_list:
         row = []
         row.append(item.get('date', 'N/A'))
         
