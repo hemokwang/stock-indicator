@@ -150,11 +150,11 @@ class AnalysisEngine:
             fund_flow_day_data = fund_flow_map.get(day_data['date'], {})
             
             net_inflow = fund_flow_day_data.get('net_inflow', 'N/A')
-            turnover = day_data.get('turnover', 0.0) # Already defaulted to 0.0 if missing
-            
-            net_inflow_pct = 'N/A'
-            if isinstance(net_inflow, (int, float)) and isinstance(turnover, (int, float)) and turnover != 0:
-                net_inflow_pct = (net_inflow / turnover) * 100
+            # turnover = day_data.get('turnover', 0.0) # turnover is already in day_data
+            turnover = day_data.get('turnover', 'N/A') # Keep 'N/A' convention if missing
+
+            # Directly use net_inflow_pct from fund_flow_day_data
+            net_inflow_pct = fund_flow_day_data.get('net_inflow_pct', 'N/A')
             
             enriched_historical_ohlcv.append({
                 'date': day_data['date'],
@@ -164,10 +164,10 @@ class AnalysisEngine:
                 'close': day_data['close'],
                 'volume': day_data['volume'],
                 'change_pct': day_data.get('change_pct', 'N/A'), # Already part of stock_df
-                'turnover': turnover, # Already part of stock_df
+                'turnover': turnover, 
                 'volume_ratio': day_data.get('volume_ratio', 'N/A'), # Calculated on stock_df
                 'net_inflow': net_inflow,
-                'net_inflow_pct': net_inflow_pct
+                'net_inflow_pct': net_inflow_pct # Use the directly fetched value
             })
         
         historical_ohlcv = enriched_historical_ohlcv # This is what gets passed to populated_historical_indicators
