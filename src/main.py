@@ -180,12 +180,14 @@ def print_bb_table(historical_data: dict, num_periods: int = 20):
     print(tabulate(table_rows, headers=headers, tablefmt="fancy_grid"))
 
 def print_individual_fund_flow_table(stock_code: str, stock_data: list, fund_flow_list_to_display: list | None, num_days: int = 20, latest_date_str_override: str | None = None):
+    print(f"[DEBUG] Entered print_individual_fund_flow_table. Received fund_flow_list_to_display with {len(fund_flow_list_to_display) if fund_flow_list_to_display is not None else 'None'} records.")
+    print(f"[DEBUG] latest_date_str_override = '{latest_date_str_override}'")
     fund_flow_list_original = fund_flow_list_to_display # Use passed data
 
     if not fund_flow_list_original: # Check if the passed list is None or empty
-        # Print a generic title or just the message if no data
-        print(f"\n--- Stock Individual Fund Flow Data (Target Last {num_days} Days) ---") # Adjusted title
-        print("No fund flow data available or error fetching data for the specified period.")
+        title_date_part = latest_date_str_override if latest_date_str_override else "specified period"
+        print(f"\n--- Stock Individual Fund Flow Data (Target Last {num_days} Days - Data up to {title_date_part}) ---")
+        print(f"No fund flow data available for stock {stock_code} up to {title_date_part}.")
         return
 
     # Convert to DataFrames and merge
@@ -503,6 +505,8 @@ def main():
         print_rsi_table(historical_data_from_result)
         print_bb_table(historical_data_from_result)
         
+        print(f"[DEBUG] Attempting to print individual fund flow table. Data for engine has {len(fund_flow_data_for_engine) if fund_flow_data_for_engine is not None else 'None'} records.")
+        print(f"[DEBUG] Calling print_individual_fund_flow_table with latest_date_str_override='{target_end_date_standard_format}'")
         # Updated call to print_individual_fund_flow_table
         print_individual_fund_flow_table(
             clean_stock_code, 
@@ -514,6 +518,8 @@ def main():
         print("\n--- Historical Data Tables ---") # Add a title even if data is missing
         print("Historical indicator data not available from analysis_result.")
         # Try to print fund flow table even if other historical data is missing
+        print(f"[DEBUG] Attempting to print individual fund flow table (else branch). Data for engine has {len(fund_flow_data_for_engine) if fund_flow_data_for_engine is not None else 'None'} records.")
+        print(f"[DEBUG] Calling print_individual_fund_flow_table with latest_date_str_override='{target_end_date_standard_format}'")
         # Updated call to print_individual_fund_flow_table
         print_individual_fund_flow_table(
             clean_stock_code, 
