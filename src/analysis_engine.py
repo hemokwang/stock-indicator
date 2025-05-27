@@ -204,8 +204,55 @@ class AnalysisEngine:
                 main_net_inflow_amount = latest_fund_flow_record.get('main_net_inflow_amount')
                 main_net_inflow_pct = latest_fund_flow_record.get('main_net_inflow_pct')
 
-        calculated_indicator_values['MainNetInflowAmount'] = {'value': main_net_inflow_amount, 'sentiment': 'N/A'}
-        calculated_indicator_values['MainNetInflowPct'] = {'value': main_net_inflow_pct, 'sentiment': 'N/A'}
+                main_net_inflow_amount = latest_fund_flow_record.get('main_net_inflow_amount')
+                main_net_inflow_pct = latest_fund_flow_record.get('main_net_inflow_pct') # Retained for potential direct use if needed elsewhere
+
+        # calculated_indicator_values['MainNetInflowAmount'] = {'value': main_net_inflow_amount, 'sentiment': 'N/A'} # Removed
+        # calculated_indicator_values['MainNetInflowPct'] = {'value': main_net_inflow_pct, 'sentiment': 'N/A'} # Removed
+
+        # --- Main Net Inflow / Turnover (%) Calculation & Sentiment ---
+        latest_main_net_inflow_amount = None
+        if fund_flow_data and isinstance(fund_flow_data, list) and len(fund_flow_data) > 0:
+            latest_fund_flow_record = fund_flow_data[-1] # Assuming latest is last
+            if isinstance(latest_fund_flow_record, dict):
+                latest_main_net_inflow_amount = latest_fund_flow_record.get('main_net_inflow_amount')
+
+        latest_turnover = None
+        if not stock_df.empty:
+            if 'turnover' in stock_df.columns and pd.api.types.is_numeric_dtype(stock_df['turnover']):
+                latest_turnover = stock_df['turnover'].iloc[-1]
+            else: 
+                try:
+                    # Ensure 'turnover' column exists before trying to convert
+                    if 'turnover' in stock_df.columns:
+                        stock_df['turnover'] = pd.to_numeric(stock_df['turnover'], errors='coerce')
+                        if pd.api.types.is_numeric_dtype(stock_df['turnover']):
+                             latest_turnover = stock_df['turnover'].iloc[-1]
+                    # If 'turnover' column doesn't exist, latest_turnover remains None
+                except Exception: 
+                    pass 
+        
+        mf_turnover_ratio_value = None
+        if latest_main_net_inflow_amount is not None and latest_turnover is not None and latest_turnover != 0:
+            mf_turnover_ratio_value = (latest_main_net_inflow_amount / latest_turnover) * 100.0
+
+        mf_turnover_sentiment = "N/A" 
+        if mf_turnover_ratio_value is not None:
+            if mf_turnover_ratio_value > 15:
+                mf_turnover_sentiment = "Strong Buy (> 15%)"
+            elif mf_turnover_ratio_value > 5: 
+                mf_turnover_sentiment = "Buy (5% to 15%)"
+            elif mf_turnover_ratio_value >= -5: 
+                mf_turnover_sentiment = "Neutral (-5% to 5%)"
+            elif mf_turnover_ratio_value >= -15: 
+                mf_turnover_sentiment = "Sell (-15% to -5%)"
+            else: 
+                mf_turnover_sentiment = "Strong Sell (< -15%)"
+        
+        calculated_indicator_values['Main Net Inflow / Turnover (%)'] = {
+            'value': mf_turnover_ratio_value,
+            'sentiment': mf_turnover_sentiment
+        }
 
         # --- Moving Average Calculations & Sentiment ---
         ma_windows_strategy = config.get('moving_averages', {}).get('windows', [])
@@ -653,7 +700,7 @@ if __name__ == '__main__':
         
         # --- Print MACD and KDJ Sentiments ---
         print(f"--- Indicator Sentiments for Timeframe: {tf} ---")
-        indicators_to_check = ['MACD_Line', 'MACD_Signal', 'MACD_Hist', 'KDJ_K', 'KDJ_D', 'KDJ_J']
+        indicators_to_check = ['MACD_Line', 'MACD_Signal', 'MACD_Hist', 'KDJ_K', 'KDJ_D', 'KDJ_J', 'Main Net Inflow / Turnover (%)']
         indicator_values = result.get('indicator_values')
         if indicator_values:
             for indicator_key in indicators_to_check:

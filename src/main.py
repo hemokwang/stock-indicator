@@ -193,43 +193,46 @@ def print_individual_fund_flow_table(stock_code: str, stock_data: list, num_days
     fund_flow_df = pd.DataFrame(fund_flow_list_original)
     stock_data_df = pd.DataFrame(stock_data)
     
-    # Select relevant columns from stock_data_df and ensure 'date' is present
+    # Select relevant columns from stock_data_df and ensure 'date' and 'turnover' are present
     if 'date' in stock_data_df.columns:
-        stock_data_df_selected = stock_data_df[['date', 'close', 'change_pct']]
-        # Merge fund flow data with stock data
-        # We use a left merge to keep all fund flow entries and add stock data if dates match
+        cols_to_select = ['date', 'close', 'change_pct']
+        if 'turnover' in stock_data_df.columns:
+            cols_to_select.append('turnover')
+        stock_data_df_selected = stock_data_df[cols_to_select]
+        
         merged_df = pd.merge(fund_flow_df, stock_data_df_selected, on='date', how='left')
-    else: # If stock_data_df doesn't have 'date', we can't merge; use original fund_flow_df
-        merged_df = fund_flow_df 
-        # Add empty columns for 'close' and 'change_pct' if they don't exist after non-merge
+    else: 
+        merged_df = fund_flow_df
         if 'close' not in merged_df.columns: merged_df['close'] = pd.NA
         if 'change_pct' not in merged_df.columns: merged_df['change_pct'] = pd.NA
+        if 'turnover' not in merged_df.columns: merged_df['turnover'] = pd.NA # Ensure turnover column exists
 
+    # Calculate Daily Main Net Inflow / Turnover (%)
+    # Ensure 'turnover' and 'main_net_inflow_amount' are numeric, coercing errors to NaN
+    merged_df['turnover'] = pd.to_numeric(merged_df['turnover'], errors='coerce')
+    merged_df['main_net_inflow_amount'] = pd.to_numeric(merged_df['main_net_inflow_amount'], errors='coerce')
 
-    display_list = merged_df.to_dict(orient='records')
-
-    # Ensure merged_df is sorted by date if it's not already guaranteed
-    # The left DataFrame (fund_flow_df) should be chronological from data_provider.
-    # A left merge preserves the order of the left keys. So, sorting might be redundant
-    # but can be kept for safety if there's any doubt.
-    # Let's assume fund_flow_df is already sorted chronologically.
-    # If explicit sort is needed: merged_df.sort_values(by='date', inplace=True)
+    merged_df['mf_turnover_ratio'] = None # Initialize column
+    # Calculate ratio where turnover is not zero and not NaN, and inflow is not NaN
+    valid_turnover_mask = merged_df['turnover'].notna() & (merged_df['turnover'] != 0)
+    valid_inflow_mask = merged_df['main_net_inflow_amount'].notna()
+    
+    merged_df.loc[valid_turnover_mask & valid_inflow_mask, 'mf_turnover_ratio'] = \
+        (merged_df['main_net_inflow_amount'] / merged_df['turnover']) * 100.0
     
     display_list = merged_df.to_dict(orient='records')
-
-    # Determine latest date from the last record of the (chronologically sorted) list
+    
     latest_date_str = display_list[-1].get('date', 'Unknown Date') if display_list else 'Unknown Date'
     print(f"\n--- Stock Individual Fund Flow Data (Last {num_days} Days - Data up to {latest_date_str}) ---")
 
     headers = [
         'Date', 'Close', 'Change Pct', 
-        'Main Net Inflow Amount', 'Main Net Inflow Pct'
+        'Main Net Inflow Amount', 'Main Net Inflow Pct',
+        'Main Net Inflow / Turnover (%)' # New Header
     ]
     
     table_rows = []
-    # Display data in chronological order (oldest first)
-    # Removed: table_display_list = display_list[::-1] 
-    for item in display_list: # Iterate directly over display_list
+    for item in display_list: 
         row = []
         row.append(item.get('date', 'N/A'))
         
@@ -239,19 +242,19 @@ def print_individual_fund_flow_table(stock_code: str, stock_data: list, num_days
         change_pct_val = item.get('change_pct')
         row.append(f"{change_pct_val:.2f}%" if isinstance(change_pct_val, (int, float)) else 'N/A')
         
-        # Helper for formatting amount columns
-        def format_amount(value): # This helper is fine
+        def format_amount(value):
             return f"{value:,.2f}" if isinstance(value, (int, float)) else 'N/A'
         
-        # Helper for formatting percentage columns
-        def format_percentage(value): # This helper is fine
+        def format_percentage(value):
             return f"{value:.2f}%" if isinstance(value, (int, float)) else 'N/A'
 
         row.append(format_amount(item.get('main_net_inflow_amount')))
         row.append(format_percentage(item.get('main_net_inflow_pct')))
         
-        # Removed other fund flow columns from display
-        
+        # Append new ratio
+        ratio_val = item.get('mf_turnover_ratio')
+        row.append(format_percentage(ratio_val)) # Use the same percentage formatter
+            
         table_rows.append(row)
 
     if not table_rows:
