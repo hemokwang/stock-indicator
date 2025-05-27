@@ -248,6 +248,7 @@ def fetch_stock_fund_flow(stock_code: str, num_days: int = 20, target_end_date_s
             '小单净流入-净占比': 'small_net_inflow_pct'
         }
         fund_flow_df.rename(columns=column_mapping, inplace=True)
+        print(f"[DEBUG data_provider] Columns after rename attempt: {list(fund_flow_df.columns)}")
         
         # Convert 'date' column to 'YYYY-MM-DD' string format if it's not already
         if 'date' in fund_flow_df.columns:
@@ -269,8 +270,12 @@ def fetch_stock_fund_flow(stock_code: str, num_days: int = 20, target_end_date_s
             'small_net_inflow_amount', 'small_net_inflow_pct'
         ]
         
+        # Debug print before building actual_columns_present
+        print(f"[DEBUG data_provider] df.columns before building actual_columns_present: {list(fund_flow_df.columns)}")
+        print(f"[DEBUG data_provider] relevant_fund_flow_columns is: {relevant_fund_flow_columns}")
         # Filter the DataFrame to only include columns that actually exist after renaming
         actual_columns_present = [col for col in relevant_fund_flow_columns if col in fund_flow_df.columns]
+        print(f"[DEBUG data_provider] actual_columns_present built as: {actual_columns_present}")
         
         print(f"[DEBUG data_provider] target_end_date_str for filtering is: {target_end_date_str}")
         # Apply target_end_date_str filter *before* tail(num_days)
@@ -289,9 +294,19 @@ def fetch_stock_fund_flow(stock_code: str, num_days: int = 20, target_end_date_s
         # Check if the primary 'main force' data columns are present. If not, the data is not useful.
         # Also ensure 'date' is present.
         essential_columns = ['date', 'main_net_inflow_amount', 'main_net_inflow_pct']
-        if not all(col in actual_columns_present for col in fund_flow_df.columns): # Check on (potentially filtered) fund_flow_df
-            missing_essential_cols = [col for col in essential_columns if col not in fund_flow_df.columns]
-            print(f"[DEBUG data_provider] Essential columns check failed. Missing: {missing_essential_cols} for stock {stock_code}. Returning empty list.")
+        # Check on (potentially filtered) fund_flow_df. 
+        # The condition `col in actual_columns_present for col in fund_flow_df.columns` was a bit confusing.
+        # It should be `col in fund_flow_df.columns` when checking against `actual_columns_present` which is a subset of `relevant_fund_flow_columns`.
+        # Or more directly, `col in fund_flow_df.columns` for `essential_columns`.
+        # Given `actual_columns_present` is what's *really* in `fund_flow_df` from `relevant_fund_flow_columns`,
+        # the check should be against `actual_columns_present`.
+        if not all(col in actual_columns_present for col in essential_columns):
+            print(f"[DEBUG data_provider] essential_columns for check is: {essential_columns}") # Print it here
+            current_missing_cols_for_log = [col for col in essential_columns if col not in actual_columns_present]
+            print(f"[DEBUG data_provider] Inside failure block. Recalculated missing for log: {current_missing_cols_for_log}")
+            all_check_result_for_log = all(col in actual_columns_present for col in essential_columns)
+            print(f"[DEBUG data_provider] Inside failure block. Result of all() check was: {all_check_result_for_log}")
+            print(f"[DEBUG data_provider] Essential columns check failed. Missing (from current_missing_cols_for_log): {current_missing_cols_for_log} for stock {stock_code}. Returning empty list.")
             return []
 
         print(f"[DEBUG data_provider] Selecting last {num_days} days from {len(fund_flow_df)} records using columns: {actual_columns_present}.")
