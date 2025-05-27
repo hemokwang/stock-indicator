@@ -318,9 +318,9 @@ def main():
     engine = AnalysisEngine()
     
     # Fetch fund flow data for the engine
-    # Using num_days=5 to get a small recent dataset for the engine.
+    # Using num_days=20 to get a small recent dataset for the engine.
     # The engine currently only uses the latest record from this.
-    N_HISTORICAL_PERIODS_FOR_FUND_FLOW = 5 
+    N_HISTORICAL_PERIODS_FOR_FUND_FLOW = 20 
     fund_flow_data_for_engine = fetch_stock_fund_flow( # New call
         clean_stock_code, 
         num_days=N_HISTORICAL_PERIODS_FOR_FUND_FLOW, 
@@ -505,26 +505,28 @@ def main():
         print_rsi_table(historical_data_from_result)
         print_bb_table(historical_data_from_result)
         
-        print(f"[DEBUG] Attempting to print individual fund flow table. Data for engine has {len(fund_flow_data_for_engine) if fund_flow_data_for_engine is not None else 'None'} records.")
-        print(f"[DEBUG] Calling print_individual_fund_flow_table with latest_date_str_override='{target_end_date_standard_format}'")
+        # print(f"[DEBUG] Attempting to print individual fund flow table. Data for engine has {len(fund_flow_data_for_engine) if fund_flow_data_for_engine is not None else 'None'} records.")
+        # print(f"[DEBUG] Calling print_individual_fund_flow_table with latest_date_str_override='{target_end_date_standard_format}'")
         # Updated call to print_individual_fund_flow_table
         print_individual_fund_flow_table(
             clean_stock_code, 
             stock_data, 
             fund_flow_list_to_display=fund_flow_data_for_engine, # Pass fetched data
+            num_days=N_HISTORICAL_PERIODS_FOR_FUND_FLOW, # Add this line
             latest_date_str_override=target_end_date_standard_format # Pass the target date for title
         )
     else:
         print("\n--- Historical Data Tables ---") # Add a title even if data is missing
         print("Historical indicator data not available from analysis_result.")
         # Try to print fund flow table even if other historical data is missing
-        print(f"[DEBUG] Attempting to print individual fund flow table (else branch). Data for engine has {len(fund_flow_data_for_engine) if fund_flow_data_for_engine is not None else 'None'} records.")
-        print(f"[DEBUG] Calling print_individual_fund_flow_table with latest_date_str_override='{target_end_date_standard_format}'")
+        # print(f"[DEBUG] Attempting to print individual fund flow table (else branch). Data for engine has {len(fund_flow_data_for_engine) if fund_flow_data_for_engine is not None else 'None'} records.")
+        # print(f"[DEBUG] Calling print_individual_fund_flow_table with latest_date_str_override='{target_end_date_standard_format}'")
         # Updated call to print_individual_fund_flow_table
         print_individual_fund_flow_table(
             clean_stock_code, 
             stock_data, 
             fund_flow_list_to_display=fund_flow_data_for_engine, # Pass fetched data
+            num_days=N_HISTORICAL_PERIODS_FOR_FUND_FLOW, # Add this line
             latest_date_str_override=target_end_date_standard_format # Pass the target date for title
         )
 
