@@ -1,6 +1,7 @@
 import argparse
-import textwrap 
-import re 
+import textwrap
+import re
+from datetime import datetime, timedelta # Ensure timedelta is imported
 import pandas as pd # Added import
 from tabulate import tabulate 
 
@@ -79,7 +80,7 @@ def _prepare_indicator_table_data(ohlcv_data_for_dates: list, indicator_group_da
 
 # --- Functions to print historical data tables ---
 def print_ohlcv_table(ohlcv_data: list, num_periods: int = 20):
-    print("\n--- Recent 20-Day OHLCV & Fund Flow Data ---") # Updated title
+    print("\n--- Recent Historical OHLCV Data ---") # Updated title to be more generic
     if not ohlcv_data:
         print("Historical OHLCV data not available or empty.")
         return
@@ -178,19 +179,17 @@ def print_bb_table(historical_data: dict, num_periods: int = 20):
         return
     print(tabulate(table_rows, headers=headers, tablefmt="fancy_grid"))
 
-def print_individual_fund_flow_table(stock_code: str, stock_data: list, num_days: int = 20):
-    # stock_data parameter is added for future use, current logic still fetches directly.
-    # stock_data parameter is added for future use, current logic still fetches directly.
-    fund_flow_list_original = fetch_stock_fund_flow(stock_code, num_days=num_days)
+def print_individual_fund_flow_table(stock_code: str, stock_data: list, fund_flow_list_to_display: list | None, num_days: int = 20, latest_date_str_override: str | None = None):
+    fund_flow_list_original = fund_flow_list_to_display # Use passed data
 
-    if not fund_flow_list_original:
+    if not fund_flow_list_original: # Check if the passed list is None or empty
         # Print a generic title or just the message if no data
-        print(f"\n--- Stock Individual Fund Flow Data (Last {num_days} Days) ---")
-        print("No fund flow data available or error fetching data.")
+        print(f"\n--- Stock Individual Fund Flow Data (Target Last {num_days} Days) ---") # Adjusted title
+        print("No fund flow data available or error fetching data for the specified period.")
         return
 
     # Convert to DataFrames and merge
-    fund_flow_df = pd.DataFrame(fund_flow_list_original)
+    fund_flow_df = pd.DataFrame(fund_flow_list_original) # Use the passed data
     stock_data_df = pd.DataFrame(stock_data)
     
     # Select relevant columns from stock_data_df and ensure 'date' and 'turnover' are present
@@ -220,10 +219,19 @@ def print_individual_fund_flow_table(stock_code: str, stock_data: list, num_days
     merged_df.loc[valid_turnover_mask & valid_inflow_mask, 'mf_turnover_ratio'] = \
         (merged_df['main_net_inflow_amount'] / merged_df['turnover']) * 100.0
     
-    display_list = merged_df.to_dict(orient='records')
+    # Ensure merged_df is sorted by date if it's not already guaranteed
+    if not merged_df.empty: # Sort only if not empty
+        merged_df.sort_values(by='date', inplace=True) # Keep for safety
     
-    latest_date_str = display_list[-1].get('date', 'Unknown Date') if display_list else 'Unknown Date'
-    print(f"\n--- Stock Individual Fund Flow Data (Last {num_days} Days - Data up to {latest_date_str}) ---")
+    display_list = merged_df.to_dict(orient='records')
+
+    effective_latest_date_str = latest_date_str_override
+    if not effective_latest_date_str and display_list: # Fallback if override not provided
+        effective_latest_date_str = display_list[-1].get('date', 'Unknown Date')
+    elif not effective_latest_date_str:
+        effective_latest_date_str = "Unknown Date"
+    # Adjusted title to reflect potential override and target
+    print(f"\n--- Stock Individual Fund Flow Data (Last {num_days} Days - Data up to {effective_latest_date_str}) ---")
 
     headers = [
         'Date', 'Close', 'Change Pct', 
@@ -274,6 +282,13 @@ def main():
                         help="Select the analysis timeframe: 'daily' (next-day outlook), 'weekly' (~5 day outlook), or 'monthly' (~20 day outlook). Default is 'daily'.")
     args = parser.parse_args()
 
+    # Determine target analysis date (yesterday)
+    target_analysis_date_dt = datetime.now() - timedelta(days=1)
+    target_end_date_akshare_format = target_analysis_date_dt.strftime('%Y%m%d')
+    target_end_date_standard_format = target_analysis_date_dt.strftime('%Y-%m-%d')
+    
+    print(f"Targeting analysis for end of day: {target_end_date_standard_format}") # For user info
+
     clean_stock_code = re.sub(r'^\s+|\s+$', '', str(args.stock_code))
 
     stock_info = fetch_stock_basic_info(clean_stock_code) 
@@ -284,9 +299,10 @@ def main():
     
     print(f"--- Initializing Stock Analysis for: {raw_stock_display_name} ---")
     print(f"Requested Timeframe: {args.timeframe.capitalize()}")
-    print(f"Fetching historical data for {clean_stock_code}...") 
+    # Updated print statement to reflect the target end date for historical data.
+    print(f"Fetching historical data for {clean_stock_code} up to {target_end_date_standard_format}...") 
 
-    stock_data = fetch_stock_data(clean_stock_code) 
+    stock_data = fetch_stock_data(clean_stock_code, end_date=target_end_date_akshare_format) # New call
 
     disclaimer_text = (
         "Disclaimer: This is a software-generated analysis based on technical indicators.\n"
@@ -303,7 +319,11 @@ def main():
     # Using num_days=5 to get a small recent dataset for the engine.
     # The engine currently only uses the latest record from this.
     N_HISTORICAL_PERIODS_FOR_FUND_FLOW = 5 
-    fund_flow_data_for_engine = fetch_stock_fund_flow(clean_stock_code, num_days=N_HISTORICAL_PERIODS_FOR_FUND_FLOW)
+    fund_flow_data_for_engine = fetch_stock_fund_flow( # New call
+        clean_stock_code, 
+        num_days=N_HISTORICAL_PERIODS_FOR_FUND_FLOW, 
+        target_end_date_str=target_end_date_standard_format # New argument
+    )
 
     # Pass stock_code and fund_flow_data_for_engine to generate_signals
     analysis_result = engine.generate_signals(stock_code=clean_stock_code, 
@@ -311,7 +331,7 @@ def main():
                                               fund_flow_data=fund_flow_data_for_engine,
                                               timeframe=args.timeframe) 
 
-    date_of_latest_data_raw = str(stock_data[-1].get('date', 'N/A')) if stock_data else "N/A"
+    date_of_latest_data_raw = target_end_date_standard_format # Use target date
     latest_closing_price_val = analysis_result.get('latest_close')
     latest_closing_price_raw_display = f"{latest_closing_price_val:.2f}" if latest_closing_price_val is not None else "N/A"
     if latest_closing_price_val is None and str(analysis_result.get('outlook', '')).strip() in ['DATA_FORMAT_ERROR', 'NO_DATA']:
@@ -482,16 +502,25 @@ def main():
         print_ma_table(historical_data_from_result)
         print_rsi_table(historical_data_from_result)
         print_bb_table(historical_data_from_result)
-        # Call the new fund flow table function
-        # Pass the main stock_data list to the function
-        print_individual_fund_flow_table(clean_stock_code, stock_data) 
+        
+        # Updated call to print_individual_fund_flow_table
+        print_individual_fund_flow_table(
+            clean_stock_code, 
+            stock_data, 
+            fund_flow_list_to_display=fund_flow_data_for_engine, # Pass fetched data
+            latest_date_str_override=target_end_date_standard_format # Pass the target date for title
+        )
     else:
         print("\n--- Historical Data Tables ---") # Add a title even if data is missing
-        print("Historical indicator data not available.")
-        # Still try to print individual fund flow if historical_data_from_result (from analysis) is missing
-        # Pass the main stock_data list to the function
-        print_individual_fund_flow_table(clean_stock_code, stock_data)
-
+        print("Historical indicator data not available from analysis_result.")
+        # Try to print fund flow table even if other historical data is missing
+        # Updated call to print_individual_fund_flow_table
+        print_individual_fund_flow_table(
+            clean_stock_code, 
+            stock_data, 
+            fund_flow_list_to_display=fund_flow_data_for_engine, # Pass fetched data
+            latest_date_str_override=target_end_date_standard_format # Pass the target date for title
+        )
 
     print("\n------------------------------------------------------------")
     print(disclaimer_text)
