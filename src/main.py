@@ -284,12 +284,25 @@ def main():
                         help="Select the analysis timeframe: 'daily' (next-day outlook), 'weekly' (~5 day outlook), or 'monthly' (~20 day outlook). Default is 'daily'.")
     args = parser.parse_args()
 
-    # Determine target analysis date (yesterday)
-    target_analysis_date_dt = datetime.now() - timedelta(days=1)
+    # NEW LOGIC STARTS HERE
+    current_datetime = datetime.now()
+    market_close_hour = 15
+    market_close_minute = 0
+
+    # Determine initial target date
+    if current_datetime.hour > market_close_hour or \
+       (current_datetime.hour == market_close_hour and current_datetime.minute > market_close_minute):
+        target_analysis_date_dt = current_datetime  # Try today
+        is_today_attempt = True
+    else:
+        target_analysis_date_dt = current_datetime - timedelta(days=1)  # Use yesterday
+        is_today_attempt = False
+
     target_end_date_akshare_format = target_analysis_date_dt.strftime('%Y%m%d')
     target_end_date_standard_format = target_analysis_date_dt.strftime('%Y-%m-%d')
     
-    print(f"Targeting analysis for end of day: {target_end_date_standard_format}") # For user info
+    # Print initial target attempt
+    print(f"Attempting to fetch data for end of day: {target_end_date_standard_format}")
 
     clean_stock_code = re.sub(r'^\s+|\s+$', '', str(args.stock_code))
 
@@ -301,10 +314,33 @@ def main():
     
     print(f"--- Initializing Stock Analysis for: {raw_stock_display_name} ---")
     print(f"Requested Timeframe: {args.timeframe.capitalize()}")
-    # Updated print statement to reflect the target end date for historical data.
-    print(f"Fetching historical data for {clean_stock_code} up to {target_end_date_standard_format}...") 
+    
+    # Initial fetch of stock_data
+    print(f"Fetching historical data for {clean_stock_code} up to {target_end_date_standard_format}...")
+    stock_data = fetch_stock_data(clean_stock_code, end_date=target_end_date_akshare_format)
 
-    stock_data = fetch_stock_data(clean_stock_code, end_date=target_end_date_akshare_format) # New call
+    # Fallback logic
+    data_valid_for_target_date = False
+    if stock_data:
+        latest_data_date_str = stock_data[-1].get('date')
+        if latest_data_date_str == target_end_date_standard_format:
+            data_valid_for_target_date = True
+
+    if is_today_attempt and not data_valid_for_target_date:
+        print(f"Data for {target_end_date_standard_format} (today) is not yet available or complete. Fetching data for yesterday.")
+        target_analysis_date_dt = current_datetime - timedelta(days=1) # Fallback to yesterday
+        target_end_date_akshare_format = target_analysis_date_dt.strftime('%Y%m%d')
+        target_end_date_standard_format = target_analysis_date_dt.strftime('%Y-%m-%d')
+        
+        # Update user on the final target date
+        print(f"Targeting analysis for end of day: {target_end_date_standard_format}")
+        
+        # Re-fetch stock_data with the new date
+        print(f"Fetching historical data for {clean_stock_code} up to {target_end_date_standard_format}...")
+        stock_data = fetch_stock_data(clean_stock_code, end_date=target_end_date_akshare_format)
+    else: # If not falling back, or if initial attempt was already yesterday, confirm the target date.
+        print(f"Targeting analysis for end of day: {target_end_date_standard_format}")
+
 
     disclaimer_text = (
         "Disclaimer: This is a software-generated analysis based on technical indicators.\n"
