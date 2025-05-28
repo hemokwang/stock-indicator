@@ -125,9 +125,32 @@ class AnalysisEngine:
         if stock_df['high'].isnull().any() or stock_df['low'].isnull().any():
             error_return_template.update({'outlook':'DATA_FORMAT_ERROR', 'explanation':"Non-numeric or missing high/low prices found after conversion."}); return error_return_template
 
-        # Calculate 5-day moving average of volume for Volume Ratio
-        stock_df['volume_ma5'] = stock_df['volume'].rolling(window=5, min_periods=1).mean()
-        stock_df['volume_ratio'] = stock_df.apply(lambda row: row['volume'] / row['volume_ma5'] if row['volume_ma5'] and row['volume_ma5'] != 0 else 'N/A', axis=1)
+        # Calculate volume ratio using previous N days average (excluding current day)
+        # This matches market platform calculation methods
+        def calculate_volume_ratio(df):
+            ratios = []
+            for i in range(len(df)):
+                current_volume = df['volume'].iloc[i]
+                
+                if i < 4:  # Not enough previous data, use available days
+                    if i == 0:
+                        # First day, ratio = 1.0
+                        ratio = 1.0
+                    else:
+                        # Use previous days only
+                        prev_volumes = df['volume'].iloc[:i]
+                        avg_volume = prev_volumes.mean()
+                        ratio = current_volume / avg_volume if avg_volume > 0 else 1.0
+                else:
+                    # Use previous 5 days (excluding current day)
+                    prev_5_volumes = df['volume'].iloc[i-5:i]
+                    avg_volume = prev_5_volumes.mean()
+                    ratio = current_volume / avg_volume if avg_volume > 0 else 1.0
+                
+                ratios.append(ratio)
+            return ratios
+        
+        stock_df['volume_ratio'] = calculate_volume_ratio(stock_df)
 
         # Removed fund flow data fetching and fund_flow_map creation
         # fund_flow_data = []
@@ -211,30 +234,12 @@ class AnalysisEngine:
         # calculated_indicator_values['MainNetInflowPct'] = {'value': main_net_inflow_pct, 'sentiment': 'N/A'} # Removed
 
         # --- Main Net Inflow / Turnover (%) Calculation & Sentiment ---
-        latest_main_net_inflow_amount = None
+        # Get main net inflow percentage directly from Akshare data (already calculated)
+        mf_turnover_ratio_value = None
         if fund_flow_data and isinstance(fund_flow_data, list) and len(fund_flow_data) > 0:
             latest_fund_flow_record = fund_flow_data[-1] # Assuming latest is last
             if isinstance(latest_fund_flow_record, dict):
-                latest_main_net_inflow_amount = latest_fund_flow_record.get('main_net_inflow_amount')
-
-        latest_turnover = None
-        if not stock_df.empty:
-            if 'turnover' in stock_df.columns and pd.api.types.is_numeric_dtype(stock_df['turnover']):
-                latest_turnover = stock_df['turnover'].iloc[-1]
-            else: 
-                try:
-                    # Ensure 'turnover' column exists before trying to convert
-                    if 'turnover' in stock_df.columns:
-                        stock_df['turnover'] = pd.to_numeric(stock_df['turnover'], errors='coerce')
-                        if pd.api.types.is_numeric_dtype(stock_df['turnover']):
-                             latest_turnover = stock_df['turnover'].iloc[-1]
-                    # If 'turnover' column doesn't exist, latest_turnover remains None
-                except Exception: 
-                    pass 
-        
-        mf_turnover_ratio_value = None
-        if latest_main_net_inflow_amount is not None and latest_turnover is not None and latest_turnover != 0:
-            mf_turnover_ratio_value = (latest_main_net_inflow_amount / latest_turnover) * 100.0
+                mf_turnover_ratio_value = latest_fund_flow_record.get('main_net_inflow_pct')
 
         mf_turnover_sentiment = "N/A" 
         if mf_turnover_ratio_value is not None:

@@ -44,6 +44,11 @@ def fetch_stock_data(stock_code: str, data_type: str = 'daily', start_date: str 
             print(f"No data returned for {stock_code} for the period {start_date}-{end_date}. It might be an invalid code, no data available for the period, or an issue with akshare.")
             return []
 
+        # Check for turnover rate column before renaming
+        turnover_rate_available = False
+        if '换手率' in stock_hist_df.columns:
+            turnover_rate_available = True
+        
         # Rename columns from Chinese to English
         column_mapping = {
             '日期': 'date',
@@ -54,11 +59,12 @@ def fetch_stock_data(stock_code: str, data_type: str = 'daily', start_date: str 
             '成交量': 'volume',
             '成交额': 'turnover',
             '涨跌幅': 'change_pct',
-            # Add other potential mappings if needed:
-            # '振幅': 'amplitude',
-            # '涨跌额': 'change_amt',
-            # '换手率': 'turnover_rate'
         }
+        
+        # Add turnover rate mapping if available
+        if turnover_rate_available:
+            column_mapping['换手率'] = 'turnover_rate_akshare'
+        
         stock_hist_df.rename(columns=column_mapping, inplace=True)
 
         # Ensure 'date' is string in YYYY-MM-DD format
@@ -72,6 +78,10 @@ def fetch_stock_data(stock_code: str, data_type: str = 'daily', start_date: str 
         # Select relevant columns and convert to list of dicts
         # Ensure all necessary columns exist after renaming, otherwise .to_dict will fail or have missing keys.
         relevant_columns = ['date', 'open', 'high', 'low', 'close', 'volume', 'turnover', 'change_pct']
+        
+        # Add turnover_rate if it was available and mapped
+        if turnover_rate_available:
+            relevant_columns.append('turnover_rate_akshare')
         
         # Check if all relevant columns are present
         missing_cols = [col for col in relevant_columns if col not in stock_hist_df.columns]
@@ -105,7 +115,7 @@ def fetch_stock_data(stock_code: str, data_type: str = 'daily', start_date: str 
 
 def fetch_stock_basic_info(stock_code: str) -> dict:
     '''
-    Fetches basic information for a given stock code, primarily its name.
+    Fetches comprehensive basic information for a given stock code.
     Uses Eastmoney's API via akshare.
     '''
     print(f"Fetching basic info for {stock_code} using akshare.stock_individual_info_em...")
@@ -118,22 +128,297 @@ def fetch_stock_basic_info(stock_code: str) -> dict:
             return {}
 
         # Convert the DataFrame to a dictionary for easier lookup
-        # Example: item='股票名称', value='平安银行' becomes info_dict['股票名称'] = '平安银行'
         info_dict = pd.Series(stock_info_df.value.values, index=stock_info_df.item).to_dict()
 
-        # Key for stock name in stock_individual_info_em is '股票简称'
-        stock_name = info_dict.get('股票简称') 
+        # Extract key information
+        result = {}
         
-        if stock_name:
-            print(f"Found stock name: {stock_name} for code: {stock_code}")
-            return {'name': stock_name}
+        # Basic info
+        result['name'] = info_dict.get('股票简称', '')
+        result['industry'] = info_dict.get('行业', '')
+        
+        # Market data  
+        result['total_market_cap'] = info_dict.get('总市值', '')
+        result['circulating_market_cap'] = info_dict.get('流通市值', '')
+        result['turnover_rate'] = info_dict.get('换手率', '')
+        
+        # Valuation metrics
+        result['pe_ratio'] = info_dict.get('市盈率-动态', '') or info_dict.get('市盈率', '')
+        result['pb_ratio'] = info_dict.get('市净率', '')
+        
+        # Price range
+        result['year_high'] = info_dict.get('52周最高', '')
+        result['year_low'] = info_dict.get('52周最低', '')
+        
+        if result['name']:
+            print(f"Found comprehensive info for {stock_code}: {result['name']}")
+            return result
         else:
-            print(f"Could not find stock name key ('股票简称') in info for {stock_code}. Available keys: {list(info_dict.keys())}")
+            print(f"Could not find stock name in info for {stock_code}. Available keys: {list(info_dict.keys())}")
             return {}
             
     except Exception as e:
         print(f"Error fetching basic info for {stock_code} using akshare.stock_individual_info_em: {e}")
         return {}
+
+def determine_optimal_end_date(stock_code: str = "000001") -> tuple[str, str]:
+    """
+    Determines the optimal end date for data fetching with intelligent data completeness checking.
+    After 15:00 (market close), attempts to use today's data but performs completeness validation.
+    Falls back to previous trading day if data is incomplete or unavailable.
+    
+    :param stock_code: Stock code to test data availability (defaults to a reliable stock)
+    :return: Tuple of (akshare_format_date, standard_format_date)
+    """
+    today = datetime.now()
+    yesterday = today - timedelta(days=1)
+    
+    today_akshare = today.strftime('%Y%m%d')
+    today_standard = today.strftime('%Y-%m-%d')
+    yesterday_akshare = yesterday.strftime('%Y%m%d')
+    yesterday_standard = yesterday.strftime('%Y-%m-%d')
+    
+    print(f"Checking data availability and completeness for optimal end date...")
+    
+    # Check current time - Chinese stock market closes at 15:00
+    current_hour = today.hour
+    current_minute = today.minute
+    current_time = current_hour * 100 + current_minute  # Format: HHMM
+    
+    # Market closes at 15:00
+    market_close_time = 1500  # 15:00
+    
+    # Before market close, always use previous trading day
+    if current_time < market_close_time:
+        print(f"Market is still open (current time: {current_hour:02d}:{current_minute:02d}, close: 15:00).")
+        print(f"Using previous trading day ({yesterday_standard}) to ensure data accuracy.")
+        return yesterday_akshare, yesterday_standard
+    
+    # After market close, try today's data with completeness validation
+    print(f"Market has closed (current time: {current_hour:02d}:{current_minute:02d}). Checking today's data completeness...")
+    
+    try:
+        # Fetch today's data to check availability
+        today_data = akshare.stock_zh_a_hist(
+            symbol=stock_code, 
+            period="daily", 
+            start_date=today_akshare, 
+            end_date=today_akshare, 
+            adjust="qfq"
+        )
+        
+        # Check if today's data exists
+        if today_data.empty or '日期' not in today_data.columns:
+            print(f"Today's data ({today_standard}) not available from primary source.")
+            print(f"Using previous trading day ({yesterday_standard}) as fallback.")
+            return yesterday_akshare, yesterday_standard
+        
+        # Verify the date in the data
+        latest_date_in_data = today_data['日期'].iloc[-1]
+        if isinstance(latest_date_in_data, pd.Timestamp):
+            latest_date_str = latest_date_in_data.strftime('%Y-%m-%d')
+        else:
+            latest_date_str = pd.to_datetime(latest_date_in_data).strftime('%Y-%m-%d')
+        
+        if latest_date_str != today_standard:
+            print(f"Today's data ({today_standard}) not found in response (got {latest_date_str}).")
+            print(f"Using previous trading day ({yesterday_standard}) as fallback.")
+            return yesterday_akshare, yesterday_standard
+        
+        # Perform data completeness check
+        required_columns = ['日期', '开盘', '最高', '最低', '收盘', '成交量', '成交额']
+        missing_columns = [col for col in required_columns if col not in today_data.columns]
+        
+        if missing_columns:
+            print(f"Today's data incomplete - missing columns: {missing_columns}")
+            print(f"Using previous trading day ({yesterday_standard}) due to incomplete data.")
+            return yesterday_akshare, yesterday_standard
+        
+        # Check for null/zero values in critical fields
+        today_row = today_data.iloc[-1]
+        critical_fields = ['收盘', '成交量', '成交额']
+        
+        for field in critical_fields:
+            value = today_row.get(field)
+            if pd.isna(value) or value == 0:
+                print(f"Today's data incomplete - {field} is null or zero: {value}")
+                print(f"Using previous trading day ({yesterday_standard}) due to incomplete data.")
+                return yesterday_akshare, yesterday_standard
+        
+        # Additional check: try to fetch fund flow data to ensure all APIs are updated
+        try:
+            fund_flow_data = akshare.stock_individual_fund_flow_rank(symbol=stock_code)
+            if fund_flow_data.empty:
+                print(f"Fund flow data not available for today, indicating incomplete API updates.")
+                print(f"Using previous trading day ({yesterday_standard}) for consistency.")
+                return yesterday_akshare, yesterday_standard
+        except:
+            # Fund flow check failed, but don't fail the whole process
+            print(f"Fund flow data check failed, but proceeding with today's OHLCV data.")
+        
+        # All checks passed - today's data is complete
+        print(f"Today's data ({today_standard}) is complete and available. Using today as end date.")
+        return today_akshare, today_standard
+        
+    except Exception as e:
+        print(f"Error during data completeness check: {e}")
+        print(f"Using previous trading day ({yesterday_standard}) as safe fallback.")
+        return yesterday_akshare, yesterday_standard
+
+def fetch_market_context() -> dict:
+    """
+    Fetches market context information including major indices performance.
+    """
+    print("Fetching market context...")
+    try:
+        # Get Shanghai Composite Index (000001.SH equivalent)
+        sh_index = akshare.stock_zh_index_spot()
+        
+        market_data = {}
+        if not sh_index.empty:
+            # Find Shanghai Composite (上证综指)
+            sh_comp = sh_index[sh_index['名称'].str.contains('上证综指', na=False)]
+            if not sh_comp.empty:
+                market_data['sh_composite'] = {
+                    'name': '上证综指',
+                    'price': sh_comp['最新价'].iloc[0],
+                    'change_pct': sh_comp['涨跌幅'].iloc[0]
+                }
+            
+            # Find CSI 300 (沪深300)
+            csi300 = sh_index[sh_index['名称'].str.contains('沪深300', na=False)]
+            if not csi300.empty:
+                market_data['csi300'] = {
+                    'name': '沪深300',
+                    'price': csi300['最新价'].iloc[0],
+                    'change_pct': csi300['涨跌幅'].iloc[0]
+                }
+        
+        return market_data
+        
+    except Exception as e:
+        print(f"Error fetching market context: {e}")
+        return {}
+
+def determine_index_membership(stock_code: str) -> str:
+    """
+    Determines which major indices the stock belongs to.
+    Checks CSI 300, CSI 500, CSI 1000, and CSI 2000 indices.
+    """
+    try:
+        print(f"Checking index membership for {stock_code}...")
+        memberships = []
+        
+        # Index symbol mapping
+        indices_to_check = [
+            ("000300", "CSI 300"),
+            ("000905", "CSI 500"),
+            ("000852", "CSI 1000"),
+            ("932000", "CSI 2000")
+        ]
+        
+        for index_symbol, index_name in indices_to_check:
+            try:
+                import signal
+                def timeout_handler(signum, frame):
+                    raise TimeoutError("Timeout")
+                
+                signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(15)  # 15 second timeout per index
+                
+                # Get constituent stocks for this index
+                index_stocks = akshare.index_stock_cons_csindex(symbol=index_symbol)
+                if stock_code in index_stocks['成分券代码'].values:
+                    memberships.append(index_name)
+                    print(f"Found {stock_code} in {index_name}")
+                    
+                signal.alarm(0)  # Cancel timeout
+                
+            except TimeoutError:
+                print(f"Timeout checking {index_name} for {stock_code}")
+                signal.alarm(0)
+                continue
+            except Exception as e:
+                print(f"Error checking {index_name} for {stock_code}: {e}")
+                signal.alarm(0)
+                continue
+        
+        # If no index membership found, fall back to heuristic
+        if not memberships:
+            if stock_code.startswith(('600', '000', '688')) and len(stock_code) == 6:
+                code_num = int(stock_code)
+                if (stock_code.startswith('600') and code_num <= 603999) or \
+                   (stock_code.startswith('000') and code_num <= 2999) or \
+                   (stock_code.startswith('688')):
+                    memberships.append("Large Cap (estimated)")
+                else:
+                    memberships.append("Mid/Small Cap (estimated)")
+        
+        return ", ".join(memberships) if memberships else "Unlisted"
+        
+    except Exception as e:
+        print(f"Error determining index membership for {stock_code}: {e}")
+        return "Unknown"
+
+def format_volume(volume: float) -> str:
+    """
+    Formats volume number to readable format.
+    """
+    try:
+        if volume >= 100000000:  # 100M+
+            return f"{volume/100000000:.2f}B shares"
+        elif volume >= 1000000:  # 1M+
+            return f"{volume/1000000:.2f}M shares"
+        elif volume >= 1000:  # 1K+
+            return f"{volume/1000:.2f}K shares"
+        else:
+            return f"{volume:.0f} shares"
+    except:
+        return "N/A"
+
+def format_turnover(turnover: float) -> str:
+    """
+    Formats turnover amount to readable format.
+    """
+    try:
+        if turnover >= 100000000:  # 100M+
+            return f"{turnover/100000000:.2f}B CNY"
+        elif turnover >= 1000000:  # 1M+
+            return f"{turnover/1000000:.2f}M CNY"
+        elif turnover >= 1000:  # 1K+
+            return f"{turnover/1000:.2f}K CNY"
+        else:
+            return f"{turnover:.0f} CNY"
+    except:
+        return "N/A"
+
+def calculate_price_changes(stock_data: list) -> tuple[str, str]:
+    """
+    Calculates price change amount and percentage from stock data.
+    Returns (change_amount, change_percentage) as formatted strings.
+    """
+    try:
+        if len(stock_data) >= 2:
+            latest = stock_data[-1]
+            previous = stock_data[-2]
+            
+            current_price = latest.get('close', 0)
+            prev_price = previous.get('close', 0)
+            
+            if prev_price != 0:
+                change_amount = current_price - prev_price
+                change_pct = (change_amount / prev_price) * 100
+                
+                amount_str = f"{change_amount:+.2f}"
+                pct_str = f"{change_pct:+.2f}%"
+                
+                return amount_str, pct_str
+        
+        return "N/A", "N/A"
+        
+    except Exception as e:
+        print(f"Error calculating price changes: {e}")
+        return "N/A", "N/A"
 
 if __name__ == '__main__':
     print("Running data_provider.py example usage...")
